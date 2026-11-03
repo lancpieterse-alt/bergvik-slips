@@ -113,15 +113,18 @@ const newDraft=()=>({id:crypto.randomUUID(),mode:'purchase',files:[],slip_date:t
   no_slip:false,no_slip_reason:'',cash_change_returned:'',quality_flag:false,ai_read:false,foreign:false,card_id:'',retakes:0,notices:[],reading:false});
 function captureView(){
   const m=$('#m');m.className='';
-  const cards=myCards();
+  const ed=S.draft?.editing;
+  const cards=ed?S.cards.filter(c=>c.id===S.draft.card_id||(c.holder_id===ed.user_id&&ed.user_id===S.me.id)):myCards();
   if(!cards.length){m.innerHTML='<div class="card"><h2>No card assigned</h2><p class="muted">Ask finance to link your company card to your account.</p></div>';return}
   if(!S.draft)S.draft=newDraft();
   const d=S.draft; if(!d.card_id)d.card_id=store.get('slips-card','')&&cards.some(c=>c.id===store.get('slips-card',''))?store.get('slips-card',''):cards[0].id;
   const cash=d.mode==='cash', cat=S.cats.find(c=>c.id===d.category_id);
   m.innerHTML=`<div id="outbox"></div>
+  ${ed?`<div class="note info">Editing <b>${esc(ed.ref)}</b>. Change what’s wrong, then save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
   ${d.no_slip||cash?'':`<div class="big"><label class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>${d.files.length?'Add a photo':'Take photo'}<input id="cam" class="hide" type="file" accept="image/*" capture="environment"></label>
   <label class="b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload PDF or file<input id="fil" class="hide" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>`}
-  <div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>
+  ${ed?'':`<div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>`}
+  ${ed&&d.existing?.length?`<p class="muted" style="margin-bottom:.8rem">${d.existing.length} saved image${d.existing.length>1?'s':''} kept with this slip.</p>`:''}
   <div class="thumbs">${d.files.map((f,i)=>`<div class="thumb">${f.url?`<img src="${f.url}" alt="Slip page ${i+1}">`:'PDF'}<button data-rm="${i}" aria-label="Remove">×</button></div>`).join('')}</div>
   ${d.reading?'<div class="note info"><span class="spin"></span> Reading the slip…</div>':''}
   ${d.notices.map(n=>`<div class="note ${n[0]}">${esc(n[1])}</div>`).join('')}
@@ -142,7 +145,7 @@ function captureView(){
    <div class="field"><label class="lbl" for="f_vat">VAT on slip (optional)</label><input id="f_vat" data-k="vat_amount" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(d.vat_amount)}"></div>`}
    ${cash?`<div class="field"><label class="lbl" for="f_pur">What is the cash for?</label><textarea id="f_pur" data-k="purpose">${esc(d.purpose)}</textarea></div><div class="field"><label class="lbl" for="f_chg">Change returned (R)</label><input id="f_chg" data-k="cash_change_returned" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(d.cash_change_returned)}"></div>`:''}
    <div class="field"><label class="lbl" for="f_notes">Notes (optional)</label><input id="f_notes" data-k="notes" type="text" value="${esc(d.notes)}"></div>
-   <div id="se"></div><button class="btn full green" id="sv">Save slip</button></div></form>`;
+   <div id="se"></div><button class="btn full green" id="sv">${ed?'Save changes':'Save slip'}</button></div></form>`;
   $$('[data-k]',m).forEach(i=>i.oninput=()=>{d[i.dataset.k]=i.value;if(i.dataset.k==='supplier')suggest(d);if(i.dataset.k==='total')notices(d,true)});
   const on=(id,fn)=>{const e=$(id,m);if(e)e.onchange=fn};
   on('#cam',e=>addFile(e.target.files[0],true));on('#fil',e=>addFile(e.target.files[0],false));
@@ -153,8 +156,9 @@ function captureView(){
   wireName('client','f_cl','client_name');wireName('project','f_prj','project_name');
   $$('[data-ct]',m).forEach(b=>b.onclick=()=>{d.cost_to=b.dataset.ct;captureView()});
   $$('[data-rm]',m).forEach(b=>b.onclick=()=>{d.files.splice(+b.dataset.rm,1);captureView()});
-  $('#ns').onclick=()=>{d.no_slip=!d.no_slip;d.mode='purchase';d.files=[];d.notices=[];captureView()};
-  $('#cw').onclick=()=>{d.mode=cash?'purchase':'cash';d.no_slip=false;d.notices=[];d.supplier=cash?'':'Cash withdrawal';captureView()};
+  if(ed)$('#ec').onclick=()=>{const v=d.returnView;S.draft=null;S.view=v;shell()};
+  else{$('#ns').onclick=()=>{d.no_slip=!d.no_slip;d.mode='purchase';d.files=[];d.notices=[];captureView()};
+  $('#cw').onclick=()=>{d.mode=cash?'purchase':'cash';d.no_slip=false;d.notices=[];d.supplier=cash?'':'Cash withdrawal';captureView()}}
   $('#sf').onsubmit=saveSlip;
   renderOutbox();
 }
@@ -197,13 +201,13 @@ async function addFile(file,fromCamera){
   if(file.size>25e6){toast('That file is too big. The limit is 25 MB.');return}
   if(file.type==='application/pdf'){
     if(file.size>1e7){toast('PDFs must be under 10 MB.');return}
-    d.files.push({blob:file,mime:'application/pdf',ext:'pdf'});captureView();if(d.files.length===1)readSlip(d,file,'application/pdf');return}
+    d.files.push({blob:file,mime:'application/pdf',ext:'pdf'});captureView();if(d.files.length===1&&!d.editing)readSlip(d,file,'application/pdf');return}
   let img;try{img=await toImage(file)}catch{toast('That file could not be opened. Try a JPG, PNG or PDF.');return}
   const q=quality(img.cv,img.w,img.h);
   if(q.issues.length&&fromCamera&&d.retakes<2){d.retakes++;d.notices=[['bad',q.issues.join(' ')+' Please retake it.']];captureView();return}
   if(q.issues.length){d.quality_flag=true;d.notices=[['warn','This image may be hard to read. Finance will see a quality flag.']]}else d.notices=[];
   d.files.push({blob:img.blob,mime:'image/jpeg',ext:'jpg',url:URL.createObjectURL(img.blob)});captureView();
-  if(d.files.length===1)readSlip(d,img.blob,'image/jpeg');
+  if(d.files.length===1&&!d.editing)readSlip(d,img.blob,'image/jpeg');
 }
 async function readSlip(d,blob,mime){
   if(!navigator.onLine)return;
@@ -217,7 +221,7 @@ async function readSlip(d,blob,mime){
     if(f.readable===false&&mime==='image/jpeg'&&d.retakes<2){d.retakes++;d.files.pop();d.notices=[['bad','The date, supplier or total can’t be read. Please retake the photo.']];captureView();return}
     if(f.readable===false)d.quality_flag=true;
     if(f.supplier&&!d.supplier)d.supplier=f.supplier;
-    if(f.slip_date&&/^\d{4}-\d{2}-\d{2}$/.test(f.slip_date)&&f.slip_date<=today())d.slip_date=f.slip_date;
+    const fd=L.fixDayMonth(f.slip_date,today());if(fd.date&&fd.date<=today())d.slip_date=fd.date;
     if(f.total&&!d.total)d.total=f.total.toFixed(2);
     if(f.currency&&f.currency!=='ZAR'){d.currency=f.currency.toUpperCase();d.foreign=true}
     if(f.vat_amount!=null&&!d.vat_amount)d.vat_amount=Number(f.vat_amount).toFixed(2);
@@ -241,7 +245,7 @@ function validate(d){
   if(d.slip_date>today())return 'The date can’t be in the future.';
   if(d.no_slip&&!d.no_slip_reason.trim())return 'Say why there is no slip.';
   if(cash)return d.purpose.trim()?null:'Say what the cash is for.';
-  if(!d.no_slip&&!d.files.length)return 'Add a photo or file of the slip, or choose “I have no slip”.';
+  if(!d.no_slip&&!d.files.length&&!d.existing?.length)return 'Add a photo or file of the slip, or choose “I have no slip”.';
   if(!d.supplier.trim())return 'Enter the supplier.';if(!cat)return 'Choose what it was for.';
   if(cat.needs_client&&!d.client_name.trim())return 'Enter the client name.';
   if(cat.needs_purpose&&!d.purpose.trim())return cat.needs_client?'Say who attended and why.':'Say what this was for.';
@@ -262,6 +266,25 @@ async function uploadAndSave(rec0,files){
   if(rows.length){const r=await sb.from('slip_files').upsert(rows,{onConflict:'path',ignoreDuplicates:true});if(r.error)throw r.error}
   return data?.ref;
 }
+async function saveEdit(d,rec0,files){
+  if(!navigator.onLine)throw new TypeError('Failed to fetch');
+  const {id,_project_name:pn,_client_name:cn,...rec}=rec0,rows=[];
+  if(pn)rec.project_id=await ensureOption('project',pn);
+  if(cn)rec.client_id=await ensureOption('client',cn);
+  const start=d.existing?.length||0;
+  for(let i=0;i<files.length;i++){const f=files[i],path=`${S.me.id}/${id}/${start+i+1}-${Date.now()}.${f.ext}`;
+    const {error}=await sb.storage.from('slips').upload(path,f.blob,{contentType:f.mime,upsert:false});if(error)throw error;
+    rows.push({slip_id:id,path,mime:f.mime,size_bytes:f.blob.size,page_no:start+i+1})}
+  const {error}=await sb.from('slips').update(rec).eq('id',id).select('id').single();if(error)throw error;
+  if(rows.length){const r=await sb.from('slip_files').insert(rows);if(r.error)throw r.error}
+}
+function editSlip(s,returnView){
+  const dr=newDraft();
+  S.draft=Object.assign(dr,{id:s.id,editing:s,returnView,existing:s.slip_files||[],mode:s.kind==='cash_withdrawal'?'cash':'purchase',card_id:s.card_id,slip_date:s.slip_date,supplier:s.supplier,total:String(s.total),currency:s.currency,foreign:s.currency!=='ZAR',
+    vat_amount:s.vat_amount??'',category_id:s.category_id||'',cost_to:s.project_id?'project':'department',department_id:s.department_id||'',project_name:optName(s.project_id),client_name:optName(s.client_id),purpose:s.purpose||'',notes:s.notes||'',
+    no_slip:s.no_slip,no_slip_reason:s.no_slip_reason||'',cash_change_returned:s.cash_change_returned??'',quality_flag:s.quality_flag,ai_read:s.ai_read,_nameOk:true});
+  S.view='capture';shell();
+}
 const isNet=e=>/Failed to fetch|NetworkError|Load failed|fetch/i.test(e?.message||'');
 async function saveSlip(e){
   e.preventDefault();const d=S.draft,err=validate(d),se=$('#se');
@@ -279,6 +302,13 @@ async function saveSlip(e){
   const rec=buildSlip(d),files=d.files.map(({blob,mime,ext})=>({blob,mime,ext}));
   store.set('slips-card',d.card_id);store.set('slips-costto',d.cost_to);if(d.department_id)store.set('slips-dept',d.department_id);
   if(d.supplier&&d.category_id){const l=store.get('slips-learn',{});l[d.supplier.trim().toLowerCase().split(/\s+/)[0]]=d.category_id;store.set('slips-learn',l)}
+  if(d.editing){
+    try{
+      await saveEdit(d,rec,files);toast(`${d.editing.ref} updated`);loadRefs().catch(()=>{});
+      const v=d.returnView;S.draft=null;S.view=v;shell();
+    }catch(x){btn.disabled=false;btn.textContent='Save changes';se.innerHTML=`<div class="note bad">${esc(isNet(x)?'No connection. Your changes aren’t saved yet, so try again when you have signal.':friendly(x))}</div>`}
+    return;
+  }
   try{
     if(!navigator.onLine)throw new TypeError('Failed to fetch');
     const ref=await uploadAndSave(rec,files);toast(`Saved as ${ref||'slip'}`);loadRefs().catch(()=>{});
@@ -324,8 +354,9 @@ async function slipModal(s,after){
   w.innerHTML=`<div><h2>${esc(s.supplier)} <span class="muted">${esc(s.ref)}</span></h2><p style="font-weight:700;margin-bottom:.4rem">${money(s.total,s.currency)}${s.currency!=='ZAR'?` ${s.amount_zar?'= '+rand(s.amount_zar):'(rand amount from statement)'}`:''}</p>
   ${line('Date',s.slip_date)}${line('Category',cat?.name)}${line('Department',optName(s.department_id))}${line('Project',optName(s.project_id))}${line('Client',optName(s.client_id))}${line('Who / why',s.purpose)}${line('VAT',s.vat_amount!=null?rand(s.vat_amount):'')}${line('No slip because',s.no_slip_reason)}${line('Change returned',s.cash_change_returned!=null?rand(s.cash_change_returned):'')}${line('Notes',s.notes)}
   <div style="margin:.7rem 0">${urls.map((u,i)=>files[i].mime==='application/pdf'?`<a class="btn ghost sm" href="${esc(u.signedUrl)}" target="_blank" rel="noopener">Open PDF</a>`:`<img src="${esc(u.signedUrl)}" alt="Slip photo">`).join('')}</div>
-  <div class="row"><button class="btn ghost" id="mc">Close</button>${editable?'<button class="btn red" id="mv">Void this slip</button>':''}</div></div>`;
+  <div class="row"><button class="btn ghost" id="mc">Close</button>${editable?'<button class="btn" id="me">Edit</button><button class="btn red" id="mv">Void</button>':''}</div>${s.status==='matched'?'<p class="muted" style="margin-top:.6rem">This slip is matched to a statement, so only finance can change it.</p>':''}</div>`;
   $('#mc',w).onclick=close;
+  const ee=$('#me',w);if(ee)ee.onclick=()=>{const v=S.view;close();editSlip(s,v)};
   const v=$('#mv',w);if(v)v.onclick=async()=>{v.disabled=true;const {error}=await sb.from('slips').update({status:'voided'}).eq('id',s.id);if(error){toast(friendly(error));v.disabled=false;return}close();toast(`${s.ref} voided`);after?.()};
 }
 

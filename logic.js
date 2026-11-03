@@ -157,6 +157,16 @@
     const m=String(fileName||'').match(re);return m?m[1]:null;
   }
 
+  /* Safety net for day and month read the wrong way round on South African slips */
+  function fixDayMonth(date,today){
+    const m=String(date||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)return {date:null,swapped:false};
+    const [,y,mo,d]=m;
+    if(+d>12||mo===d)return {date,swapped:false};
+    const alt=`${y}-${d}-${mo}`,gap=x=>Math.abs(dayNum(x)-dayNum(today));
+    const useAlt=alt<=today&&(date>today||(gap(date)>45&&gap(alt)<gap(date)));
+    return useAlt?{date:alt,swapped:true}:{date,swapped:false};
+  }
+
   /* Name matching for client and project lists */
   const norm=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
   function editDistance(a,b){
@@ -180,6 +190,6 @@
     return [...starts,...has,...near].slice(0,max);
   }
 
-  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines,accountLast4,sameName,closestName,suggestNames};
+  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines,accountLast4,fixDayMonth,sameName,closestName,suggestNames};
   if(typeof module!=='undefined') module.exports=api; else root.SlipLogic=api;
 })(typeof window!=='undefined'?window:globalThis);
