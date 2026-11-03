@@ -150,6 +150,13 @@
     return res;
   }
 
+  /* FNB exports name the card once above the table, e.g. "FOR ACCOUNT NUMBER 422824******8000" */
+  function accountLast4(rows,headerIdx,fileName){
+    const re=/\d{4,6}[*xX_]{2,}(\d{4})/;
+    for(const r of rows.slice(0,headerIdx)){const m=r.join(' ').match(re);if(m)return m[1]}
+    const m=String(fileName||'').match(re);return m?m[1]:null;
+  }
+
   /* Name matching for client and project lists */
   const norm=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
   function editDistance(a,b){
@@ -173,6 +180,6 @@
     return [...starts,...has,...near].slice(0,max);
   }
 
-  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines,sameName,closestName,suggestNames};
+  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines,accountLast4,sameName,closestName,suggestNames};
   if(typeof module!=='undefined') module.exports=api; else root.SlipLogic=api;
 })(typeof window!=='undefined'?window:globalThis);

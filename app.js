@@ -417,9 +417,10 @@ function statementWizard(M){
     const h=L.findHeaderRow(rows),head=rows[h].map((c,i)=>String(c||`Column ${i+1}`)),g=L.guessColumns(head);
     const sig=head.join('|'),map=saved?.sig===sig?saved.map:g,body=rows.slice(h+1);
     const sel=(k,l,opt)=>`<div class="field"><label class="lbl" for="c_${k}">${l}</label><select id="c_${k}">${opt?'<option value="">Not in file</option>':''}${head.map((c,i)=>`<option value="${i}" ${map[k]===i?'selected':''}>${esc(c)}</option>`).join('')}</select></div>`;
-    const active=M.cards.filter(c=>c.active);
+    const active=M.cards.filter(c=>c.active),fileLast4=L.accountLast4(rows,h,f.name),fileCard=active.find(c=>c.last4===fileLast4);
     $('#s2').innerHTML=`<div class="row">${sel('date','Date column')}${sel('description','Description column')}</div><div class="row">${sel('amount','Amount column',1)}${sel('debit','Debit column',1)}${sel('credit','Credit column',1)}</div>
-    <div class="field"><label class="lbl" for="c_card">Which card? (if the description doesn’t show it)</label><select id="c_card"><option value="">Work it out from each line</option>${active.map(c=>`<option value="${c.id}">${esc(c.label)} (${c.last4}), ${esc(personOf(M,c.holder_id))}</option>`).join('')}</select></div>
+    <div class="field"><label class="lbl" for="c_card">Which card is this statement for?</label><select id="c_card"><option value="">${fileLast4?'Choose a card…':'Work it out from each line'}</option>${active.map(c=>`<option value="${c.id}" ${c.id===fileCard?.id?'selected':''}>${esc(c.label)} (${c.last4}), ${esc(personOf(M,c.holder_id))}</option>`).join('')}</select></div>
+    ${fileLast4&&!fileCard?`<div class="note bad">This file is for a card ending in ${esc(fileLast4)}, but no active card has those digits. Add the card under People &amp; cards first, or check you have the right file.</div>`:fileCard?`<div class="note ok">Card found in the file: ending in ${esc(fileLast4)}.</div>`:''}
     <div id="s3"></div><button class="btn" id="si">Import and match</button>`;
     $('#si').onclick=()=>doImport(f,body,head,sig,M)};
 }
@@ -432,6 +433,7 @@ async function doImport(file,body,head,sig,M){
   const forced=$('#c_card').value||null,btn=$('#si');btn.disabled=true;btn.textContent='Importing…';
   const byLast4=Object.fromEntries(M.cards.filter(c=>c.active).map(c=>[c.last4,c.id]));
   lines.forEach(l=>{l.card_id=forced||byLast4[l.last4]||null});
+  if(lines.some(l=>!l.card_id&&!l.is_credit)){btn.disabled=false;btn.textContent='Import and match';$('#s3').innerHTML='<div class="note bad">Choose which card this statement is for. Nothing was imported.</div>';return}
   const keys=L.dedupeKeys(lines);
   try{
     const {data:st,error:e1}=await sb.from('statements').insert({period:S.month,file_name:file.name}).select().single();if(e1)throw e1;
