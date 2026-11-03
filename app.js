@@ -22,7 +22,7 @@ async function boot(){
   window.addEventListener('online',()=>{document.body.classList.remove('offline');flushOutbox()});
   window.addEventListener('offline',()=>document.body.classList.add('offline'));
   if(!navigator.onLine)document.body.classList.add('offline');
-  setInterval(flushOutbox,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)flushOutbox()});
+  setInterval(flushOutbox,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden){flushOutbox();if(S.me)loadRefs().catch(()=>{})}});
   try{if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js')}catch{}
   const {data}=await sb.auth.getSession();
   if(data.session)await enter();else loginView();
@@ -61,12 +61,12 @@ async function loadRefs(){
   const [c,k,o]=await Promise.all([
     sb.from('cards').select('*').eq('active',true).order('label'),
     sb.from('categories').select('*').eq('active',true).order('sort'),
-    sb.from('options').select('*').eq('active',true).order('name')]);
+    sb.from('options').select('*').order('name')]);
   S.cards=c.data||[];S.cats=k.data||[];S.opts=o.data||[];
   store.set('slips-cache',{me:S.me,cards:S.cards,cats:S.cats,opts:S.opts});
 }
 const myCards=()=>S.cards.filter(c=>c.holder_id===S.me.id);
-const opts=k=>S.opts.filter(o=>o.kind===k);
+const opts=k=>S.opts.filter(o=>o.kind===k&&o.active);
 const optName=id=>S.opts.find(o=>o.id===id)?.name||'';
 
 /* ---------- layout ---------- */
@@ -109,7 +109,7 @@ const b64=blob=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(S
 
 /* ---------- capture ---------- */
 const newDraft=()=>({id:crypto.randomUUID(),mode:'purchase',files:[],slip_date:today(),supplier:'',total:'',currency:'ZAR',vat_amount:'',
-  category_id:'',cost_to:store.get('slips-costto','department'),department_id:store.get('slips-dept',''),project_id:'',client_id:'',purpose:'',notes:'',
+  category_id:'',cost_to:store.get('slips-costto','department'),department_id:store.get('slips-dept',''),project_name:'',client_name:'',purpose:'',notes:'',
   no_slip:false,no_slip_reason:'',cash_change_returned:'',quality_flag:false,ai_read:false,foreign:false,card_id:'',retakes:0,notices:[],reading:false});
 function captureView(){
   const m=$('#m');m.className='';
@@ -134,11 +134,11 @@ function captureView(){
    <label class="muted" style="display:flex;gap:.5rem;align-items:center;margin-bottom:.8rem;min-height:32px"><input id="f_for" type="checkbox" ${d.foreign?'checked':''}> Paid in a foreign currency</label>
    ${d.foreign?`<div class="field"><label class="lbl" for="f_cur">Currency</label><select id="f_cur">${['USD','EUR','GBP','AED','AUD','SEK'].map(c=>`<option ${c===d.currency?'selected':''}>${c}</option>`).join('')}</select><p class="muted" style="margin-top:.3rem">Enter the amount on the receipt. Finance gets the rand amount from the statement.</p></div>`:''}
    <div class="field"><label class="lbl" for="f_cat">What was it for?</label><select id="f_cat" required><option value="">Choose…</option>${S.cats.map(c=>`<option value="${c.id}" ${c.id===d.category_id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
-   ${cat?.needs_client?`<div class="field"><label class="lbl" for="f_cl">Client</label><select id="f_cl"><option value="">Choose…</option>${opts('client').map(o=>`<option value="${o.id}" ${o.id===d.client_id?'selected':''}>${esc(o.name)}</option>`).join('')}<option value="__new">+ Add a new client</option></select></div>`:''}
+   ${cat?.needs_client?nameField('client','f_cl','Client name',d.client_name):''}
    ${cat?.needs_purpose?`<div class="field"><label class="lbl" for="f_pur">${cat.needs_client?'Who attended, and why?':'What was this for?'}</label><textarea id="f_pur" data-k="purpose">${esc(d.purpose)}</textarea></div>`:''}
    <label class="lbl">Charge to</label><div class="seg"><button type="button" data-ct="department" class="${d.cost_to==='department'?'on':''}">Department</button><button type="button" data-ct="project" class="${d.cost_to==='project'?'on':''}">Project</button></div>
    ${d.cost_to==='department'?`<div class="field"><select id="f_dep" aria-label="Department"><option value="">Choose a department…</option>${opts('department').map(o=>`<option value="${o.id}" ${o.id===d.department_id?'selected':''}>${esc(o.name)}</option>`).join('')}</select></div>`
-   :`<div class="field"><select id="f_prj" aria-label="Project"><option value="">Choose a project…</option>${opts('project').map(o=>`<option value="${o.id}" ${o.id===d.project_id?'selected':''}>${esc(o.name)}</option>`).join('')}</select></div>`}
+   :nameField('project','f_prj','Project name',d.project_name)}
    <div class="field"><label class="lbl" for="f_vat">VAT on slip (optional)</label><input id="f_vat" data-k="vat_amount" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(d.vat_amount)}"></div>`}
    ${cash?`<div class="field"><label class="lbl" for="f_pur">What is the cash for?</label><textarea id="f_pur" data-k="purpose">${esc(d.purpose)}</textarea></div><div class="field"><label class="lbl" for="f_chg">Change returned (R)</label><input id="f_chg" data-k="cash_change_returned" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(d.cash_change_returned)}"></div>`:''}
    <div class="field"><label class="lbl" for="f_notes">Notes (optional)</label><input id="f_notes" data-k="notes" type="text" value="${esc(d.notes)}"></div>
@@ -148,19 +148,32 @@ function captureView(){
   on('#cam',e=>addFile(e.target.files[0],true));on('#fil',e=>addFile(e.target.files[0],false));
   on('#f_card',e=>{d.card_id=e.target.value});on('#f_cur',e=>{d.currency=e.target.value});
   on('#f_for',e=>{d.foreign=e.target.checked;d.currency=d.foreign?'USD':'ZAR';captureView()});
-  on('#f_cat',e=>{d.category_id=e.target.value;d.client_id='';captureView()});
-  on('#f_dep',e=>{d.department_id=e.target.value});on('#f_prj',e=>{d.project_id=e.target.value});
-  on('#f_cl',async e=>{if(e.target.value!=='__new'){d.client_id=e.target.value;return}
-    const name=await ask('New client name');if(!name){captureView();return}
-    const {data,error}=await sb.from('options').insert({kind:'client',name}).select().single();
-    if(error){toast(/duplicate/.test(error.message)?'That client already exists.':friendly(error));captureView();return}
-    S.opts.push(data);d.client_id=data.id;captureView()});
+  on('#f_cat',e=>{d.category_id=e.target.value;captureView()});
+  on('#f_dep',e=>{d.department_id=e.target.value});
+  wireName('client','f_cl','client_name');wireName('project','f_prj','project_name');
   $$('[data-ct]',m).forEach(b=>b.onclick=()=>{d.cost_to=b.dataset.ct;captureView()});
   $$('[data-rm]',m).forEach(b=>b.onclick=()=>{d.files.splice(+b.dataset.rm,1);captureView()});
   $('#ns').onclick=()=>{d.no_slip=!d.no_slip;d.mode='purchase';d.files=[];d.notices=[];captureView()};
   $('#cw').onclick=()=>{d.mode=cash?'purchase':'cash';d.no_slip=false;d.notices=[];d.supplier=cash?'':'Cash withdrawal';captureView()};
   $('#sf').onsubmit=saveSlip;
   renderOutbox();
+}
+function nameField(kind,id,label,val){return `<div class="field"><label class="lbl" for="${id}">${label}</label><input id="${id}" type="text" maxlength="80" autocomplete="off" value="${esc(val)}" placeholder="Start typing"><div class="sugg" id="${id}_s" role="listbox"></div></div>`}
+function wireName(kind,id,key){
+  const i=$('#'+id);if(!i)return;const box=$('#'+id+'_s'),d=S.draft;
+  const show=()=>{const names=opts(kind).map(o=>o.name),list=L.suggestNames(i.value,names).filter(n=>!L.sameName(n,i.value));
+    box.innerHTML=list.map(n=>`<button type="button" role="option" data-n="${esc(n)}">${esc(n)}</button>`).join('');
+    $$('button',box).forEach(b=>b.onpointerdown=e=>{e.preventDefault();i.value=b.dataset.n;d[key]=b.dataset.n;d._nameOk=false;box.innerHTML=''})};
+  i.oninput=()=>{d[key]=i.value;d._nameOk=false;show()};i.onfocus=show;i.onblur=()=>setTimeout(()=>{box.innerHTML=''},150);
+}
+async function ensureOption(kind,name){
+  name=name.trim().replace(/\s+/g,' ');
+  const hit=S.opts.find(o=>o.kind===kind&&L.sameName(o.name,name));if(hit)return hit.id;
+  const {data,error}=await sb.from('options').insert({kind,name}).select().single();
+  if(!error){S.opts.push(data);return data.id}
+  if(!/duplicate|unique/i.test(error.message))throw error;
+  const r=await sb.from('options').select('*').eq('kind',kind);if(r.error)throw r.error;
+  const m=r.data.find(o=>L.sameName(o.name,name));if(!m)throw error;return m.id;
 }
 function ask(label){return new Promise(ok=>{
   const w=document.createElement('div');w.className='modal';w.innerHTML=`<div><form><label class="lbl" for="a1">${esc(label)}</label><div class="field"><input id="a1" type="text" required></div><div class="row"><button type="button" class="btn ghost" id="a0">Cancel</button><button class="btn">Save</button></div></form></div>`;
@@ -218,7 +231,7 @@ function buildSlip(d){
   const cash=d.mode==='cash',num=v=>v===''||v==null?null:Number(v);
   return {id:d.id,card_id:d.card_id,kind:cash?'cash_withdrawal':'purchase',slip_date:d.slip_date,supplier:cash?'Cash withdrawal':d.supplier.trim(),total:num(d.total),currency:cash?'ZAR':d.currency,
    vat_amount:cash?null:num(d.vat_amount),category_id:cash?null:d.category_id||null,
-   department_id:!cash&&d.cost_to==='department'?d.department_id||null:null,project_id:!cash&&d.cost_to==='project'?d.project_id||null:null,client_id:d.client_id||null,
+   department_id:!cash&&d.cost_to==='department'?d.department_id||null:null,project_id:null,client_id:null,_project_name:!cash&&d.cost_to==='project'?d.project_name.trim():'',_client_name:!cash&&S.cats.find(c=>c.id===d.category_id)?.needs_client?d.client_name.trim():'',
    purpose:d.purpose.trim()||null,notes:d.notes.trim()||null,no_slip:d.no_slip,no_slip_reason:d.no_slip?d.no_slip_reason.trim():null,
    cash_change_returned:cash?num(d.cash_change_returned):null,quality_flag:d.quality_flag,ai_read:d.ai_read};
 }
@@ -230,14 +243,16 @@ function validate(d){
   if(cash)return d.purpose.trim()?null:'Say what the cash is for.';
   if(!d.no_slip&&!d.files.length)return 'Add a photo or file of the slip, or choose “I have no slip”.';
   if(!d.supplier.trim())return 'Enter the supplier.';if(!cat)return 'Choose what it was for.';
-  if(cat.needs_client&&!d.client_id)return 'Choose the client.';
+  if(cat.needs_client&&!d.client_name.trim())return 'Enter the client name.';
   if(cat.needs_purpose&&!d.purpose.trim())return cat.needs_client?'Say who attended and why.':'Say what this was for.';
   if(d.cost_to==='department'&&!d.department_id)return 'Choose a department.';
-  if(d.cost_to==='project'&&!d.project_id)return 'Choose a project.';
+  if(d.cost_to==='project'&&!d.project_name.trim())return 'Enter the project name.';
   return null;
 }
-async function uploadAndSave(rec,files){
-  const uid=S.me.id,rows=[];
+async function uploadAndSave(rec0,files){
+  const uid=S.me.id,rows=[],{_project_name:pn,_client_name:cn,...rec}=rec0;
+  if(pn)rec.project_id=await ensureOption('project',pn);
+  if(cn)rec.client_id=await ensureOption('client',cn);
   for(let i=0;i<files.length;i++){const f=files[i],path=`${uid}/${rec.id}/${i+1}.${f.ext}`;
     const {error}=await sb.storage.from('slips').upload(path,f.blob,{contentType:f.mime,upsert:false});
     if(error&&!/exists|Duplicate/i.test(error.message))throw error;
@@ -251,13 +266,22 @@ const isNet=e=>/Failed to fetch|NetworkError|Load failed|fetch/i.test(e?.message
 async function saveSlip(e){
   e.preventDefault();const d=S.draft,err=validate(d),se=$('#se');
   if(err){se.innerHTML=`<div class="note bad">${esc(err)}</div>`;return}
+  if(!d._nameOk&&d.mode!=='cash'){
+    const cat=S.cats.find(c=>c.id===d.category_id);
+    for(const [kind,key,on] of [['project','project_name',d.cost_to==='project'],['client','client_name',cat?.needs_client]]){
+      const near=on?L.closestName(d[key],opts(kind).map(o=>o.name)):null;
+      if(near){se.innerHTML=`<div class="note warn">Did you mean <b>${esc(near)}</b>?<div class="row" style="margin-top:.5rem"><button type="button" class="btn sm" id="nu">Use ${esc(near)}</button><button type="button" class="btn sm ghost" id="nk">Keep what I typed</button></div></div>`;
+        $('#nu').onclick=()=>{d[key]=near;d._nameOk=true;captureView();$('#sf').requestSubmit()};
+        $('#nk').onclick=()=>{d._nameOk=true;$('#sf').requestSubmit()};return}
+    }
+  }
   const btn=$('#sv');btn.disabled=true;btn.innerHTML='<span class="spin"></span> Saving';
   const rec=buildSlip(d),files=d.files.map(({blob,mime,ext})=>({blob,mime,ext}));
   store.set('slips-card',d.card_id);store.set('slips-costto',d.cost_to);if(d.department_id)store.set('slips-dept',d.department_id);
   if(d.supplier&&d.category_id){const l=store.get('slips-learn',{});l[d.supplier.trim().toLowerCase().split(/\s+/)[0]]=d.category_id;store.set('slips-learn',l)}
   try{
     if(!navigator.onLine)throw new TypeError('Failed to fetch');
-    const ref=await uploadAndSave(rec,files);toast(`Saved as ${ref||'slip'}`);
+    const ref=await uploadAndSave(rec,files);toast(`Saved as ${ref||'slip'}`);loadRefs().catch(()=>{});
   }catch(x){
     if(!isNet(x)){btn.disabled=false;btn.textContent='Save slip';se.innerHTML=`<div class="note bad">${esc(friendly(x))}</div>`;return}
     await outboxAdd({rec,files});toast('Saved on this phone. It will upload when you have signal.');
@@ -307,7 +331,7 @@ async function slipModal(s,after){
 
 /* ---------- finance: month ---------- */
 async function loadMonth(){
-  const p=S.month,next=monthOf(new Date(Date.UTC(+p.slice(0,4),+p.slice(5,7),1)).toISOString().slice(0,10));
+  const p=S.month;await loadRefs();
   const [sl,st,lock,people,allCards]=await Promise.all([
     sb.from('slips').select('*,slip_files(path,mime,page_no)').or(`period.eq.${p},status.eq.captured`).neq('status','voided').order('slip_date'),
     sb.from('statements').select('id,file_name,statement_lines(*)').eq('period',p),
@@ -315,7 +339,7 @@ async function loadMonth(){
     sb.from('profiles').select('*'),sb.from('cards').select('*')]);
   for(const r of [sl,st,people,allCards])if(r.error)throw r.error;
   const lines=st.data.flatMap(x=>x.statement_lines).sort((a,b)=>(b.post_date||'').localeCompare(a.post_date||'')||a.row_no-b.row_no);
-  return {all:sl.data,slips:sl.data.filter(s=>s.period===p),lines,statements:st.data,locked:lock.data,people:people.data,cards:allCards.data,next};
+  return {all:sl.data,slips:sl.data.filter(s=>s.period===p),lines,statements:st.data,locked:lock.data,people:people.data,cards:allCards.data};
 }
 const personOf=(M,id)=>M.people.find(x=>x.id===id)?.full_name||'';
 const cardOf=(M,id)=>{const c=M.cards.find(x=>x.id===id);return c?`${c.label} (${c.last4})`:''};

@@ -79,3 +79,7 @@ body.offline #offline-bar{display:block}
 input[type=date],input[type=month]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;height:52px;text-align:left}
 input[type=text],input[type=email],input[type=password],input[type=number]{height:52px}
 input::-webkit-date-and-time-value{text-align:left;min-height:1.4em}
+.sugg{display:flex;flex-direction:column;margin-top:.25rem;border-radius:10px;overflow:hidden}
+.sugg:not(:empty){border:1.5px solid var(--border)}
+.sugg button{background:#fff;border:0;border-bottom:1px solid var(--border);padding:.7rem .85rem;text-align:left;min-height:44px;cursor:pointer}
+.sugg button:last-child{border-bottom:0}.sugg button:hover,.sugg button:focus{background:var(--blue-lt)}

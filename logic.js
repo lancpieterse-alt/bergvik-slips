@@ -150,6 +150,29 @@
     return res;
   }
 
-  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines};
+  /* Name matching for client and project lists */
+  const norm=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+  function editDistance(a,b){
+    const row=Array.from({length:b.length+1},(_,i)=>i);
+    for(let i=1;i<=a.length;i++){let prev=row[0];row[0]=i;
+      for(let j=1;j<=b.length;j++){const t=row[j];row[j]=Math.min(row[j]+1,row[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=t}}
+    return row[b.length];
+  }
+  const sameName=(a,b)=>norm(a)===norm(b);
+  function closestName(name,list){
+    const n=norm(name);let best=null,score=99;
+    for(const x of list){const m=norm(x);if(m===n)return null;
+      const d=editDistance(n,m),limit=n.length>=8?2:n.length>=4?1:0;
+      if(d<=limit&&d<score){best=x;score=d}}
+    return best;
+  }
+  function suggestNames(typed,list,max=6){
+    const n=norm(typed);if(!n)return list.slice(0,max);
+    const starts=list.filter(x=>norm(x).startsWith(n)),has=list.filter(x=>!norm(x).startsWith(n)&&norm(x).includes(n));
+    const near=list.filter(x=>!norm(x).includes(n)&&closestName(typed,[x]));
+    return [...starts,...has,...near].slice(0,max);
+  }
+
+  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines,sameName,closestName,suggestNames};
   if(typeof module!=='undefined') module.exports=api; else root.SlipLogic=api;
 })(typeof window!=='undefined'?window:globalThis);
