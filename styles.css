@@ -87,3 +87,5 @@ input::-webkit-date-and-time-value{text-align:left;min-height:1.4em}
 .logo-chip img{height:32px;width:auto;display:block}
 .login-logo{display:block;width:100%;max-width:260px;height:auto;margin:0 auto 1.4rem;mix-blend-mode:multiply}
 .login{margin-top:6vh}
+table.people tbody tr{cursor:pointer}table.people tbody tr:hover,table.people tbody tr:focus{background:var(--blue-lt)}
+table.people tr.sel{background:var(--blue-lt);box-shadow:inset 3px 0 0 var(--blue)}

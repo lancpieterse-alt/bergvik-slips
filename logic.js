@@ -1,5 +1,6 @@
 /* Pure logic: statement parsing and slip matching. No DOM or network, so it can be tested directly. */
 (function (root) {
+  const norm=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
   const MONTHS = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
   const iso = (y,m,d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const dayNum = s => Math.round(Date.parse(s+'T00:00:00Z')/864e5);
@@ -157,6 +158,21 @@
     const m=String(fileName||'').match(re);return m?m[1]:null;
   }
 
+  function isStatementRows(rows){
+    const r=rows[findHeaderRow(rows)]||[],h=r.map(String),g=guessColumns(h);
+    return g.date!=null&&g.description!=null&&(g.amount!=null||g.debit!=null);
+  }
+
+  /* Works out which card a workbook tab belongs to, from its heading, its name or the person's name */
+  function cardForSheet(sheetName,rows,headerIdx,cards){
+    const last4=accountLast4(rows,headerIdx,sheetName);
+    if(last4)return {last4,card:cards.find(c=>c.last4===last4)||null};
+    const digits=String(sheetName||'').match(/(?:^|\D)(\d{4})(?:\D|$)/);
+    if(digits){const hit=cards.find(c=>c.last4===digits[1]);return {last4:digits[1],card:hit||null}}
+    const n=norm(sheetName),named=cards.filter(c=>{const full=norm(c.holder_name);return full&&(n.includes(full)||n.split(/[^a-z]+/).includes(full.split(' ')[0]))});
+    return {last4:null,card:named.length===1?named[0]:null};
+  }
+
   /* Safety net for day and month read the wrong way round on South African slips */
   function fixDayMonth(date,today){
     const m=String(date||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)return {date:null,swapped:false};
@@ -168,7 +184,6 @@
   }
 
   /* Name matching for client and project lists */
-  const norm=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
   function editDistance(a,b){
     const row=Array.from({length:b.length+1},(_,i)=>i);
     for(let i=1;i<=a.length;i++){let prev=row[0];row[0]=i;
@@ -190,6 +205,6 @@
     return [...starts,...has,...near].slice(0,max);
   }
 
-  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines,accountLast4,fixDayMonth,sameName,closestName,suggestNames};
+  const api={parseCSV,parseAmount,parseDate,parseDescriptor,guessColumns,findHeaderRow,normaliseRows,dedupeKeys,nameScore,matchLines,accountLast4,isStatementRows,cardForSheet,fixDayMonth,sameName,closestName,suggestNames};
   if(typeof module!=='undefined') module.exports=api; else root.SlipLogic=api;
 })(typeof window!=='undefined'?window:globalThis);

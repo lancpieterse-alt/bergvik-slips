@@ -378,18 +378,30 @@ async function monthView(){
   const m=$('#m');m.className='wide';m.innerHTML='<div class="card"><span class="spin"></span></div>';
   let M;try{M=await loadMonth()}catch(e){m.innerHTML=`<div class="note bad">${esc(friendly(e))}</div>`;return}
   S.M=M;const locked=!!M.locked;
-  const un=M.lines.filter(l=>l.status==='unmatched'&&!l.is_credit),poss=M.lines.filter(l=>l.status==='possible');
-  const stmtIds=new Set(M.lines.map(l=>l.id));
-  const notOn=M.statements.length?M.slips.filter(s=>s.status==='captured'):[];
-  const noSlip=M.slips.filter(s=>s.no_slip),noFile=M.slips.filter(s=>!s.no_slip&&s.kind==='purchase'&&!s.slip_files.length),flag=M.slips.filter(s=>s.quality_flag);
-  const fx=M.slips.filter(s=>s.currency!=='ZAR'&&s.amount_zar==null);
-  const total=M.slips.reduce((a,s)=>a+Number(s.amount_zar||0),0);
+  const holder=id=>M.cards.find(k=>k.id===id)?.holder_id;
+  if(S.who&&!M.people.some(p=>p.id===S.who))S.who=null;
+  const who=S.who,Ls=who?M.lines.filter(l=>holder(l.card_id)===who):M.lines,Ss=who?M.slips.filter(s=>s.user_id===who):M.slips;
+  const un=Ls.filter(l=>l.status==='unmatched'),poss=Ls.filter(l=>l.status==='possible');
+  const onStmt=new Set(M.lines.map(l=>l.card_id));
+  const notOn=Ss.filter(s=>s.status==='captured'&&onStmt.has(s.card_id));
+  const noSlip=Ss.filter(s=>s.no_slip),noFile=Ss.filter(s=>!s.no_slip&&s.kind==='purchase'&&!s.slip_files.length),flag=Ss.filter(s=>s.quality_flag);
+  const fx=Ss.filter(s=>s.currency!=='ZAR'&&s.amount_zar==null);
+  const total=Ss.reduce((a,s)=>a+Number(s.amount_zar||0),0);
+  const rows=M.people.filter(p=>M.cards.some(k=>k.holder_id===p.id&&k.active)||M.slips.some(s=>s.user_id===p.id)||M.lines.some(l=>holder(l.card_id)===p.id)).map(p=>{
+    const sl=M.slips.filter(s=>s.user_id===p.id),ln=M.lines.filter(l=>holder(l.card_id)===p.id),live=ln.filter(l=>l.status!=='ignored');
+    return {p,slips:sl.length,value:sl.reduce((a,s)=>a+Number(s.amount_zar||0),0),hasStmt:ln.length>0,matched:live.filter(l=>l.status==='matched').length,lines:live.length,missing:live.filter(l=>l.status==='unmatched').length,review:live.filter(l=>l.status==='possible').length}
+  }).sort((a,b)=>a.p.full_name.localeCompare(b.p.full_name));
+  const stat=r=>!r.hasStmt?'<span class="pill n">No statement</span>':r.missing||r.review?'<span class="pill o">Needs attention</span>':'<span class="pill g">Complete</span>';
+  const peopleCard=`<div class="card"><h2>Cardholders</h2><div class="tw"><table class="people"><thead><tr><th>Person</th><th>Status</th><th class="n">Slips</th><th class="n">Rand value</th><th class="n">Lines matched</th><th class="n">No slip</th><th class="n">To review</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr data-who="${r.p.id}" tabindex="0" role="button" class="${who===r.p.id?'sel':''}"><td>${esc(r.p.full_name)}</td><td>${stat(r)}</td><td class="n">${r.slips}</td><td class="n">${rand(r.value)}</td><td class="n">${r.hasStmt?`${r.matched} / ${r.lines}`:'–'}</td><td class="n">${r.hasStmt?r.missing:'–'}</td><td class="n">${r.hasStmt?r.review:'–'}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">No cardholders yet.</td></tr>'}
+  </tbody></table></div>${who?`<div class="note info" style="margin:.7rem 0 0">Showing <b>${esc(personOf(M,who))}</b> only. <button class="btn sm ghost" id="wa">Show everyone</button></div>`:'<p class="muted" style="margin-top:.5rem">Tap a person to see only their slips.</p>'}</div>`;
   m.innerHTML=`<div class="bar"><div><label class="lbl" for="mp">Month</label><input id="mp" type="month" value="${S.month.slice(0,7)}"></div><span class="sp"></span>
   ${locked?'<span class="pill r">Locked</span>':`<button class="btn ghost" id="up">Upload statement</button>`}<button class="btn" id="xl">Export Excel + photos</button>
   <button class="btn ${locked?'ghost':'red'}" id="lk">${locked?'Unlock month':'Lock month'}</button></div><div id="wiz"></div>
-  <div class="tiles"><div class="tile"><b>${M.slips.length}</b><span>Slips this month</span></div><div class="tile"><b>${rand(total)}</b><span>Rand value captured</span></div>
-  <div class="tile"><b>${M.lines.filter(l=>l.status==='matched').length} / ${M.lines.filter(l=>!l.is_credit&&l.status!=='ignored').length}</b><span>Statement lines matched</span></div>
+  <div class="tiles"><div class="tile"><b>${Ss.length}</b><span>Slips this month</span></div><div class="tile"><b>${rand(total)}</b><span>Rand value captured</span></div>
+  <div class="tile"><b>${Ls.filter(l=>l.status==='matched').length} / ${Ls.filter(l=>l.status!=='ignored').length}</b><span>Statement lines matched</span></div>
   <div class="tile"><b>${un.length}</b><span>On statement, no slip</span></div><div class="tile"><b>${poss.length}</b><span>Need your review</span></div></div>
+  ${peopleCard}
   ${!M.statements.length?'<div class="note info">No statement uploaded for this month yet. Slips show under the month they were dated until a statement matches them.</div>':''}
   ${poss.length?card('Possible matches: confirm or reject',poss.map(l=>lineRow(l,M,true)).join('')):''}
   ${un.length?card('On the statement with no slip',un.map(l=>lineRow(l,M)).join('')):''}
@@ -398,8 +410,10 @@ async function monthView(){
   ${noSlip.length?card('No slip: reason given',noSlip.map(s=>slipRow(s,M,s.no_slip_reason)).join('')):''}
   ${noFile.length?card('Missing an image',noFile.map(s=>slipRow(s,M)).join('')):''}
   ${flag.length?card('Image quality flagged',flag.map(s=>slipRow(s,M)).join('')):''}
-  ${card('All slips',M.slips.map(s=>slipRow(s,M)).join('')||'<p class="muted">Nothing captured for this month.</p>')}`;
+  ${card('All slips',Ss.map(s=>slipRow(s,M)).join('')||'<p class="muted">Nothing captured for this month.</p>')}`;
   $('#mp').onchange=e=>{if(e.target.value){S.month=e.target.value+'-01';monthView()}};
+  $$('[data-who]',m).forEach(r=>r.onclick=()=>{S.who=S.who===r.dataset.who?null:r.dataset.who;monthView()});
+  const wa=$('#wa');if(wa)wa.onclick=()=>{S.who=null;monthView()};
   const up=$('#up');if(up)up.onclick=()=>statementWizard(M);
   $('#xl').onclick=()=>exportMonth(M);
   $('#lk').onclick=async()=>{
@@ -432,18 +446,21 @@ function pickSlip(lineId,M){
 
 /* Statement upload */
 async function loadExcelJS(){if(window.ExcelJS)return;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='vendor/exceljs.min.js';s.onload=ok;s.onerror=no;document.head.append(s)})}
-async function fileRows(file){
+async function fileSheets(file){
   if(/\.pdf$/i.test(file.name))throw new Error('Please download the statement as CSV or Excel. PDF statements aren’t supported yet.');
-  if(/\.xlsx$/i.test(file.name)){await loadExcelJS();const wb=new ExcelJS.Workbook();await wb.xlsx.load(await file.arrayBuffer());const ws=wb.worksheets[0],rows=[];
-    ws.eachRow(r=>{const a=[];r.eachCell({includeEmpty:true},(c,i)=>{let v=c.value;if(v&&typeof v==='object'&&!(v instanceof Date))v=v.result??v.text??'';a[i-1]=v??''});rows.push(a)});return rows}
+  if(/\.xlsx$/i.test(file.name)){await loadExcelJS();const wb=new ExcelJS.Workbook();await wb.xlsx.load(await file.arrayBuffer());
+    return wb.worksheets.filter(ws=>ws.state!=='hidden'&&ws.state!=='veryHidden').map(ws=>{const rows=[];ws.eachRow({includeEmpty:false},r=>{const a=[];r.eachCell({includeEmpty:true},(c,i)=>{let v=c.value;if(v&&typeof v==='object'&&!(v instanceof Date))v=v.result??v.text??(v.richText?v.richText.map(t=>t.text).join(''):'');a[i-1]=v??''});rows.push(a)});return {name:ws.name,rows}})}
   if(/\.xls$/i.test(file.name))throw new Error('Please save the file as .xlsx or .csv first.');
-  return L.parseCSV(await file.text());
+  return [{name:file.name,rows:L.parseCSV(await file.text())}];
 }
 function statementWizard(M){
   const w=$('#wiz'),saved=store.get('slips-stmt-map',null);
   w.innerHTML=`<div class="card"><h2>Upload a statement for ${monthName(S.month)}</h2><p class="muted" style="margin-bottom:.7rem">CSV or Excel. Matching runs on card, amount and date.</p><div class="field"><input id="sfile" type="file" accept=".csv,.txt,.xlsx" aria-label="Statement file"></div><div id="s2"></div></div>`;
-  $('#sfile').onchange=async e=>{const f=e.target.files[0];if(!f)return;let rows;
-    try{rows=await fileRows(f)}catch(x){$('#s2').innerHTML=`<div class="note bad">${esc(friendly(x))}</div>`;return}
+  $('#sfile').onchange=async e=>{const f=e.target.files[0];if(!f)return;let sheets;
+    try{sheets=await fileSheets(f)}catch(x){$('#s2').innerHTML=`<div class="note bad">${esc(friendly(x))}</div>`;return}
+    const usable=sheets.filter(t=>t.rows.length>=2&&L.isStatementRows(t.rows));
+    if(usable.length>1)return tabsWizard(f,usable,sheets.length,M);
+    const rows=(usable[0]||sheets[0])?.rows||[];
     if(rows.length<2){$('#s2').innerHTML='<div class="note bad">No rows found in that file.</div>';return}
     const h=L.findHeaderRow(rows),head=rows[h].map((c,i)=>String(c||`Column ${i+1}`)),g=L.guessColumns(head);
     const sig=head.join('|'),map=saved?.sig===sig?saved.map:g,body=rows.slice(h+1);
@@ -456,6 +473,22 @@ function statementWizard(M){
     $('#si').onclick=()=>doImport(f,body,head,sig,M)};
 }
 const col=id=>{const v=$(id).value;return v===''?null:+v};
+function tabsWizard(file,tabs,total,M){
+  const active=M.cards.filter(c=>c.active).map(c=>({...c,holder_name:personOf(M,c.holder_id)}));
+  const parts=tabs.map(t=>{const h=L.findHeaderRow(t.rows),map=L.guessColumns(t.rows[h].map(String)),lines=L.normaliseRows(t.rows.slice(h+1),map),found=L.cardForSheet(t.name,t.rows,h,active);return {name:t.name,lines,found}});
+  $('#s2').innerHTML=`<p class="muted" style="margin-bottom:.5rem">This workbook has ${tabs.length} statement tabs${total>tabs.length?` (${total-tabs.length} other tab${total-tabs.length>1?'s':''} skipped)`:''}. Check the card for each tab.</p>
+  <div class="tw"><table><thead><tr><th>Tab</th><th class="n">Lines</th><th class="n">Rand total</th><th>Card</th></tr></thead><tbody>
+  ${parts.map((p,i)=>`<tr><td>${esc(p.name)}</td><td class="n">${p.lines.length}</td><td class="n">${rand(p.lines.filter(l=>!l.is_credit).reduce((a,l)=>a+l.amount,0))}</td><td><select id="tab${i}" aria-label="Card for ${esc(p.name)}"><option value="">Choose a card…</option><option value="skip">Skip this tab</option>${active.map(c=>`<option value="${c.id}" ${c.id===p.found.card?.id?'selected':''}>${esc(c.holder_name)}: ${esc(c.label)} (${c.last4})</option>`).join('')}</select>${p.found.last4&&!p.found.card?`<div class="muted" style="color:var(--red)">Card ending in ${esc(p.found.last4)} isn’t set up yet.</div>`:''}</td></tr>`).join('')}
+  </tbody></table></div><div id="s3" style="margin-top:.6rem"></div><button class="btn" id="si" style="margin-top:.5rem">Import and match</button>`;
+  $('#si').onclick=()=>{
+    const picks=parts.map((p,i)=>({p,v:$('#tab'+i).value}));
+    if(picks.some(x=>!x.v)){$('#s3').innerHTML='<div class="note bad">Choose a card for every tab, or choose Skip this tab. Nothing was imported.</div>';return}
+    const chosen=picks.filter(x=>x.v!=='skip');
+    const seen=chosen.map(x=>x.v);if(new Set(seen).size<seen.length){$('#s3').innerHTML='<div class="note bad">Two tabs are set to the same card. Check them, then import again.</div>';return}
+    const lines=chosen.flatMap(x=>x.p.lines.map(l=>({...l,card_id:x.v})));
+    if(!lines.length){$('#s3').innerHTML='<div class="note bad">No transactions to import.</div>';return}
+    runImport(file.name,lines,$('#si'))};
+}
 async function doImport(file,body,head,sig,M){
   const map={date:col('#c_date'),description:col('#c_description'),amount:col('#c_amount'),debit:col('#c_debit'),credit:col('#c_credit')};
   if(map.amount==null&&map.debit==null){$('#s3').innerHTML='<div class="note bad">Choose an amount or debit column.</div>';return}
@@ -465,9 +498,13 @@ async function doImport(file,body,head,sig,M){
   const byLast4=Object.fromEntries(M.cards.filter(c=>c.active).map(c=>[c.last4,c.id]));
   lines.forEach(l=>{l.card_id=forced||byLast4[l.last4]||null});
   if(lines.some(l=>!l.card_id&&!l.is_credit)){btn.disabled=false;btn.textContent='Import and match';$('#s3').innerHTML='<div class="note bad">Choose which card this statement is for. Nothing was imported.</div>';return}
+  runImport(file.name,lines,btn);
+}
+async function runImport(fileName,lines,btn){
+  btn.disabled=true;btn.textContent='Importing…';
   const keys=L.dedupeKeys(lines);
   try{
-    const {data:st,error:e1}=await sb.from('statements').insert({period:S.month,file_name:file.name}).select().single();if(e1)throw e1;
+    const {data:st,error:e1}=await sb.from('statements').insert({period:S.month,file_name:fileName}).select().single();if(e1)throw e1;
     const rows=lines.map((l,i)=>({statement_id:st.id,row_no:l.row_no,card_id:l.card_id,txn_date:l.txn_date,post_date:l.post_date,description:l.description,amount:l.amount,foreign_amount:l.foreign_amount,
       status:l.is_credit?'ignored':'unmatched',ignore_reason:l.is_credit?'Credit or payment':null,dedupe_key:keys[i]}));
     const {data:ins,error:e2}=await sb.from('statement_lines').upsert(rows,{onConflict:'dedupe_key',ignoreDuplicates:true}).select();if(e2)throw e2;
@@ -531,7 +568,7 @@ async function buildWorkbook(M,cats,fileName){
   M.lines.filter(l=>l.status==='possible').forEach(l=>add('Possible match not confirmed',l.txn_date||l.post_date,cardOf(M,l.card_id),l.description,Number(l.amount)));
   M.lines.filter(l=>l.status==='ignored'&&l.ignore_reason!=='Credit or payment').forEach(l=>add('Marked no slip needed',l.post_date,cardOf(M,l.card_id),`${l.description}: ${l.ignore_reason}`,Number(l.amount)));
   M.slips.filter(s=>s.no_slip).forEach(s=>add('No slip',s.slip_date,personOf(M,s.user_id),`${s.ref} ${s.supplier}: ${s.no_slip_reason}`,s.amount_zar!=null?Number(s.amount_zar):null));
-  M.slips.filter(s=>s.status==='captured'&&M.statements.length).forEach(s=>add('Captured, not on statement',s.slip_date,personOf(M,s.user_id),`${s.ref} ${s.supplier}`,s.amount_zar!=null?Number(s.amount_zar):null));
+  M.slips.filter(s=>s.status==='captured'&&M.lines.some(l=>l.card_id===s.card_id)).forEach(s=>add('Captured, not on statement',s.slip_date,personOf(M,s.user_id),`${s.ref} ${s.supplier}`,s.amount_zar!=null?Number(s.amount_zar):null));
   M.slips.filter(s=>s.currency!=='ZAR'&&s.amount_zar==null).forEach(s=>add('Foreign, rand amount pending',s.slip_date,personOf(M,s.user_id),`${s.ref} ${s.supplier} ${s.currency} ${s.total}`,null));
   ex.getColumn(5).numFmt=NUM;ex.columns.forEach((c,i)=>c.width=[30,12,28,60,14][i]);
   return wb;
