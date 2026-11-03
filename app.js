@@ -28,7 +28,7 @@ async function boot(){
   if(data.session)await enter();else loginView();
 }
 function loginView(msg){
-  $('#app').innerHTML=`<form class="login" id="lf"><h1>Bergvik Slips</h1><p>Capture company card slips as you pay.</p>
+  $('#app').innerHTML=`<form class="login" id="lf"><img class="login-logo" src="logo.jpg" alt="Bergvik. Creating new dimensions."><h1>Slips</h1><p>Capture company card slips as you pay.</p>
   ${msg?`<div class="note bad">${esc(msg)}</div>`:''}
   <div class="field"><label class="lbl" for="em">Email</label><input id="em" type="email" autocomplete="username" required></div>
   <div class="field"><label class="lbl" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required></div>
@@ -48,7 +48,7 @@ async function enter(){
   await loadRefs();S.view=isFin()&&matchMedia('(min-width:761px)').matches?'month':'capture';shell();flushOutbox();
 }
 function pwView(){
-  $('#app').innerHTML=`<form class="login" id="pf"><h1>Choose a password</h1><p>Replace your temporary password. Use at least 10 characters.</p><div id="pe"></div>
+  $('#app').innerHTML=`<form class="login" id="pf"><img class="login-logo" src="logo.jpg" alt="Bergvik. Creating new dimensions."><h1>Choose a password</h1><p>Replace your temporary password. Use at least 10 characters.</p><div id="pe"></div>
   <div class="field"><label class="lbl" for="p1">New password</label><input id="p1" type="password" minlength="10" autocomplete="new-password" required></div>
   <div class="field"><label class="lbl" for="p2">Repeat it</label><input id="p2" type="password" minlength="10" autocomplete="new-password" required></div><button class="btn full">Save password</button></form>`;
   $('#pf').onsubmit=async e=>{e.preventDefault();const a=$('#p1').value;
@@ -74,7 +74,7 @@ function shell(){
   const items=[['capture','Capture'],['mine','My slips']];
   if(isFin())items.push(['month','Month'],['people','People & cards'],['lists','Lists']);
   const b=items.map(([k,l])=>`<button data-go="${k}" class="${S.view===k?'on':''}">${l}</button>`).join('');
-  $('#app').innerHTML=`<header class="top"><h1>Slips</h1><nav class="nav">${b}</nav><span class="who">${esc(S.me.full_name)}</span><button id="so">Sign out</button></header><main id="m"></main><nav class="tabs">${b}</nav>`;
+  $('#app').innerHTML=`<header class="top"><span class="logo-chip"><img src="logo-mark.jpg" alt="Bergvik"></span><h1>Slips</h1><nav class="nav">${b}</nav><span class="who">${esc(S.me.full_name)}</span><button id="so">Sign out</button></header><main id="m"></main><nav class="tabs">${b}</nav>`;
   $$('[data-go]').forEach(x=>x.onclick=()=>{S.view=x.dataset.go;shell()});
   $('#so').onclick=async()=>{await sb.auth.signOut();location.reload()};
   ({capture:captureView,mine:mineView,month:monthView,people:peopleView,lists:listsView}[S.view])();

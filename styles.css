@@ -83,3 +83,7 @@ input::-webkit-date-and-time-value{text-align:left;min-height:1.4em}
 .sugg:not(:empty){border:1.5px solid var(--border)}
 .sugg button{background:#fff;border:0;border-bottom:1px solid var(--border);padding:.7rem .85rem;text-align:left;min-height:44px;cursor:pointer}
 .sugg button:last-child{border-bottom:0}.sugg button:hover,.sugg button:focus{background:var(--blue-lt)}
+.logo-chip{background:#fff;border-radius:7px;padding:3px 5px;display:flex;flex:0 0 auto}
+.logo-chip img{height:32px;width:auto;display:block}
+.login-logo{display:block;width:100%;max-width:260px;height:auto;margin:0 auto 1.4rem;mix-blend-mode:multiply}
+.login{margin-top:6vh}
