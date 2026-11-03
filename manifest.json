@@ -1,2 +1,25 @@
-{"name":"Bergvik Slips","short_name":"Slips","description":"Capture company card slips","start_url":"./index.html","scope":"./","display":"standalone","background_color":"#1F4E79","theme_color":"#1F4E79","orientation":"any",
-"icons":[{"src":"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='38' fill='%231F4E79'/><path d='M56 36h80v120l-13-10-13 10-13-10-13 10-13-10-15 10z' fill='white'/><path d='M72 68h48M72 92h48M72 116h28' stroke='%231F4E79' stroke-width='9' stroke-linecap='round'/></svg>","sizes":"192x192","type":"image/svg+xml","purpose":"any maskable"}]}
+{
+ "name": "Bergvik Slips",
+ "short_name": "Bergvik Slips",
+ "description": "Capture company card slips",
+ "start_url": "./index.html",
+ "scope": "./",
+ "display": "standalone",
+ "background_color": "#1F4E79",
+ "theme_color": "#1F4E79",
+ "orientation": "any",
+ "icons": [
+  {
+   "src": "icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any maskable"
+  },
+  {
+   "src": "icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any maskable"
+  }
+ ]
+}

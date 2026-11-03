@@ -1,5 +1,5 @@
 // Network first, so staff always get the latest version. The cached copy only opens the app with no signal.
-const C='slips-v3', FILES=['./','./index.html','./app.js','./logic.js','./styles.css','./manifest.json','./logo.jpg','./logo-mark.jpg','./vendor/supabase.js'];
+const C='slips-v4', FILES=['./','./index.html','./app.js','./logic.js','./styles.css','./manifest.json','./logo.jpg','./logo-mark.jpg','./vendor/supabase.js'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)))});
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch',e=>{
