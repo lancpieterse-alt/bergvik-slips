@@ -1,0 +1,81 @@
+:root{--blue:#1F4E79;--blue-lt:#e8f0fb;--green:#2e7d32;--green-lt:#e8f5e9;--orange:#b84500;--orange-lt:#fff3e0;--red:#c62828;--red-lt:#fce4ec;
+--bg:#f0f2f5;--card:#fff;--border:#dde3ec;--txt:#1a1a1a;--muted:#5f6b7a;--radius:14px;--safe-top:env(safe-area-inset-top,0px);--safe-bot:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{font-size:16px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--txt);min-height:100dvh;line-height:1.4}
+button,input,select,textarea{font:inherit;color:inherit}
+h1{font-size:1.25rem}h2{font-size:1.05rem;margin-bottom:.6rem}
+a{color:var(--blue)}
+.top{background:var(--blue);color:#fff;padding:calc(.8rem + var(--safe-top)) 1rem .8rem;display:flex;align-items:center;gap:1rem;position:sticky;top:0;z-index:20}
+.top .who{margin-left:auto;font-size:.85rem;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40vw}
+.top button{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:.3rem .6rem;font-size:.8rem;cursor:pointer}
+.nav{display:flex;gap:.25rem}
+.nav button{background:none;border:0;color:#fff;opacity:.75;padding:.4rem .7rem;border-radius:8px;cursor:pointer;font-weight:600;font-size:.92rem}
+.nav button.on{background:rgba(255,255,255,.18);opacity:1}
+.tabs{display:none}
+main{max-width:640px;margin:0 auto;padding:1rem 1rem calc(6rem + var(--safe-bot))}
+main.wide{max-width:1120px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:1rem}
+.field{margin-bottom:1rem}
+label.lbl{display:block;font-size:.8rem;font-weight:700;color:var(--muted);margin-bottom:.3rem}
+input[type=text],input[type=email],input[type=password],input[type=date],input[type=month],input[type=number],textarea,select{width:100%;padding:.75rem .85rem;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-size:1rem;min-height:48px}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--blue);outline-offset:0;border-color:var(--blue)}
+textarea{min-height:76px;resize:vertical}
+.row{display:flex;gap:.6rem}.row>*{flex:1;min-width:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;padding:.8rem 1.1rem;min-height:48px;border:0;border-radius:11px;font-weight:700;cursor:pointer;background:var(--blue);color:#fff;text-decoration:none}
+.btn.full{width:100%}.btn.ghost{background:var(--blue-lt);color:var(--blue)}.btn.green{background:var(--green)}.btn.red{background:var(--red)}
+.btn.sm{padding:.4rem .7rem;min-height:36px;font-size:.85rem;border-radius:8px}
+.btn:disabled{opacity:.5;cursor:default}
+.big{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-bottom:.7rem}
+.big label,.big button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.35rem;min-height:104px;border-radius:var(--radius);font-weight:700;cursor:pointer;border:0;text-align:center;padding:.6rem}
+.big .a{background:var(--blue);color:#fff}.big .b{background:#fff;color:var(--blue);border:1.5px solid var(--border)}
+.big svg{width:30px;height:30px}
+.link-row{display:flex;gap:.6rem}
+.link-row button{flex:1;background:none;border:1.5px dashed var(--border);border-radius:11px;padding:.65rem;color:var(--blue);font-weight:600;cursor:pointer;min-height:48px}
+.link-row button.on{background:var(--blue-lt);border-style:solid;border-color:var(--blue)}
+.seg{display:flex;background:var(--bg);border-radius:10px;padding:3px;margin-bottom:.6rem}
+.seg button{flex:1;border:0;background:none;padding:.55rem;border-radius:8px;font-weight:600;cursor:pointer;color:var(--muted);min-height:42px}
+.seg button.on{background:#fff;color:var(--blue);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.thumbs{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.8rem}
+.thumb{position:relative;width:84px;height:112px;border-radius:9px;overflow:hidden;border:1px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:var(--muted)}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb button{position:absolute;top:3px;right:3px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer}
+.note{padding:.65rem .8rem;border-radius:10px;font-size:.9rem;margin-bottom:.8rem}
+.note.warn{background:var(--orange-lt);color:#7a2e00}.note.bad{background:var(--red-lt);color:#8e1414}.note.ok{background:var(--green-lt);color:#1b5e20}.note.info{background:var(--blue-lt);color:#163a5a}
+.pill{display:inline-block;padding:.1rem .5rem;border-radius:999px;font-size:.75rem;font-weight:700;white-space:nowrap}
+.pill.g{background:var(--green-lt);color:#1b5e20}.pill.o{background:var(--orange-lt);color:#7a2e00}.pill.r{background:var(--red-lt);color:#8e1414}.pill.b{background:var(--blue-lt);color:#163a5a}.pill.n{background:#eceff3;color:#4a5462}
+.item{display:flex;gap:.7rem;padding:.7rem 0;border-bottom:1px solid var(--border);align-items:center}
+.item:last-child{border-bottom:0}.item .m{flex:1;min-width:0}.item .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.item .s{font-size:.82rem;color:var(--muted)}.item .amt{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1rem}
+.tile{background:#fff;border:1px solid var(--border);border-radius:12px;padding:.75rem .9rem}
+.tile b{display:block;font-size:1.4rem;font-variant-numeric:tabular-nums}.tile span{font-size:.8rem;color:var(--muted)}
+.bar{display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem}.bar .sp{flex:1}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{text-align:left;font-size:.75rem;color:var(--muted);padding:.45rem .5rem;border-bottom:2px solid var(--border);white-space:nowrap}
+td{padding:.5rem;border-bottom:1px solid var(--border);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(5.5rem + var(--safe-bot));background:#222;color:#fff;padding:.6rem 1rem;border-radius:10px;font-size:.9rem;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60;max-width:90vw}
+#toast.show{opacity:1}
+#offline-bar{display:none;background:#8e1414;color:#fff;text-align:center;padding:calc(.4rem + var(--safe-top)) .8rem .4rem;font-size:.82rem}
+body.offline #offline-bar{display:block}
+.login{max-width:380px;margin:12vh auto 0;padding:1rem}.login h1{color:var(--blue);margin-bottom:.2rem}.login p{color:var(--muted);margin-bottom:1.2rem;font-size:.9rem}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem}
+.modal>div{background:#fff;border-radius:var(--radius);padding:1.1rem;max-width:560px;width:100%;max-height:88dvh;overflow:auto}
+.modal img{max-width:100%;display:block;margin-bottom:.6rem;border-radius:8px}
+.spin{width:18px;height:18px;border:2.5px solid rgba(0,0,0,.15);border-top-color:var(--blue);border-radius:50%;display:inline-block;animation:s .7s linear infinite;vertical-align:middle}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.hide{display:none!important}
+.muted{color:var(--muted);font-size:.88rem}
+@media (max-width:760px){
+ .top .nav{display:none}
+ .tabs{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);padding-bottom:var(--safe-bot);z-index:30}
+ .tabs button{flex:1;background:none;border:0;padding:.75rem .2rem;font-size:.78rem;font-weight:700;color:var(--muted);min-height:56px;cursor:pointer}
+ .tabs button.on{color:var(--blue);box-shadow:inset 0 2px 0 var(--blue)}
+}
+/* iPhone Safari gives date fields a fixed native width, which pushes them over the next field */
+.row>*{min-width:0}
+input[type=date],input[type=month]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;height:52px;text-align:left}
+input[type=text],input[type=email],input[type=password],input[type=number]{height:52px}
+input::-webkit-date-and-time-value{text-align:left;min-height:1.4em}
