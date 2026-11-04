@@ -14,6 +14,7 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v)
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),3500)}
 const friendly=e=>{const m=e?.message||String(e);return /Failed to fetch|NetworkError|Load failed/i.test(m)?'No connection. Try again.':m};
 
+const CURRENCIES=[['USD','USD (US Dollar)'],['EUR','EUR (Euro)'],['GBP','GBP (British Pound)'],['KES','KES (Kenyan Shilling)'],['BWP','BWP (Botswana Pula)'],['AED','AED (UAE Dirham)'],['AUD','AUD (Australian Dollar)'],['SEK','SEK (Swedish Krona)']];
 const S={me:null,view:'capture',cards:[],cats:[],opts:[],month:monthOf(today()),draft:null};
 const isFin=()=>S.me?.role==='finance';
 
@@ -135,7 +136,7 @@ function captureView(){
    <div class="field"><label class="lbl" for="f_total">${cash?'Amount drawn':'Total paid'} ${d.foreign?'':'(R)'}</label><input id="f_total" data-k="total" type="number" inputmode="decimal" step="0.01" min="0.01" value="${esc(d.total)}" required></div></div>
    ${cash?'':`<div class="field"><label class="lbl" for="f_sup">Supplier</label><input id="f_sup" data-k="supplier" type="text" value="${esc(d.supplier)}" required autocomplete="off"></div>
    <label class="muted" style="display:flex;gap:.5rem;align-items:center;margin-bottom:.8rem;min-height:32px"><input id="f_for" type="checkbox" ${d.foreign?'checked':''}> Paid in a foreign currency</label>
-   ${d.foreign?`<div class="field"><label class="lbl" for="f_cur">Currency</label><select id="f_cur">${['USD','EUR','GBP','AED','AUD','SEK'].map(c=>`<option ${c===d.currency?'selected':''}>${c}</option>`).join('')}</select><p class="muted" style="margin-top:.3rem">Enter the amount on the receipt. Finance gets the rand amount from the statement.</p></div>`:''}
+   ${d.foreign?`<div class="field"><label class="lbl" for="f_cur">Currency</label><select id="f_cur">${[...new Set([...CURRENCIES.map(c=>c[0]),d.currency])].map(c=>`<option value="${esc(c)}" ${c===d.currency?'selected':''}>${esc(CURRENCIES.find(x=>x[0]===c)?.[1]||c)}</option>`).join('')}</select><p class="muted" style="margin-top:.3rem">Enter the amount on the receipt. Finance gets the rand amount from the statement.</p></div>`:''}
    <div class="field"><label class="lbl" for="f_cat">What was it for?</label><select id="f_cat" required><option value="">Choose…</option>${S.cats.map(c=>`<option value="${c.id}" ${c.id===d.category_id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
    ${cat?.needs_client?nameField('client','f_cl','Client name',d.client_name):''}
    ${cat?.needs_purpose?`<div class="field"><label class="lbl" for="f_pur">${cat.needs_client?'Who attended, and why?':'What was this for?'}</label><textarea id="f_pur" data-k="purpose">${esc(d.purpose)}</textarea></div>`:''}
