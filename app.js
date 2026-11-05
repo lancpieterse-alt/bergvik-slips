@@ -67,6 +67,7 @@ async function loadRefs(){
     sb.from('categories').select('*').eq('active',true).order('sort'),
     sb.from('options').select('*').order('name')]);
   S.cards=c.data||[];S.cats=k.data||[];S.opts=o.data||[];
+  const ml=await sb.rpc('my_missing_lines');S.missing=ml.data||[];
   store.set('slips-cache',{me:S.me,cards:S.cards,cats:S.cats,opts:S.opts});
 }
 const myCards=()=>S.cards.filter(c=>c.holder_id===S.me.id);
@@ -75,13 +76,13 @@ const optName=id=>S.opts.find(o=>o.id===id)?.name||'';
 
 /* ---------- layout ---------- */
 function shell(){
-  const items=[['capture','Capture'],['mine','My slips']];
+  const n=S.missing?.length||0,items=[['capture','Capture'],['mine','My slips'],['missing',`Missing${n?` <span class="count">${n}</span>`:''}`]];
   if(isFin())items.push(['month','Month'],['people','People & cards'],['lists','Lists']);
   const b=items.map(([k,l])=>`<button data-go="${k}" class="${S.view===k?'on':''}">${l}</button>`).join('');
   $('#app').innerHTML=`<header class="top"><span class="logo-chip"><img src="logo-mark.jpg" alt="Bergvik"></span><h1>Slips</h1><nav class="nav">${b}</nav><span class="who">${esc(S.me.full_name)}</span><button id="so">Sign out</button></header><main id="m"></main><nav class="tabs">${b}</nav>`;
   $$('[data-go]').forEach(x=>x.onclick=()=>{S.view=x.dataset.go;shell()});
   $('#so').onclick=async()=>{await sb.auth.signOut();location.reload()};
-  ({capture:captureView,mine:mineView,month:monthView,people:peopleView,lists:listsView}[S.view])();
+  ({capture:captureView,mine:mineView,missing:missingView,month:monthView,people:peopleView,lists:listsView}[S.view])();
 }
 
 /* ---------- photo handling ---------- */
@@ -126,7 +127,7 @@ function captureView(){
   const cash=d.mode==='cash', cat=S.cats.find(c=>c.id===d.category_id);
   m.innerHTML=`<div id="outbox"></div>
   ${ed?`<div class="note info">Editing <b>${esc(ed.ref)}</b>. Change what’s wrong, then save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
-  ${fl?`<div class="note info">Adding the slip for <b>${esc(fl.person)}</b> (${rand(fl.amount)}, ${esc(fl.description)}). It links to this statement line when you save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
+  ${fl?`<div class="note info">${fl.holder===S.me.id?'Adding your slip':`Adding the slip for <b>${esc(fl.person)}</b>`} (${rand(fl.amount)}, ${esc(fl.description)}). It links to this statement line when you save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
   ${(d.no_slip&&!ed)||cash?'':`<div class="big"><label class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>${d.files.length||d.existing?.length?'Add a photo':'Take photo'}<input id="cam" class="hide" type="file" accept="image/*" capture="environment"></label>
   <label class="b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload PDF or file<input id="fil" class="hide" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>`}
   ${ed||fl?'':`<div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>`}
@@ -287,12 +288,13 @@ async function saveEdit(d,rec0,files){
   const {error}=await sb.from('slips').update(rec).eq('id',id).select('id').single();if(error)throw error;
   if(rows.length){const r=await sb.from('slip_files').insert(rows);if(r.error)throw r.error}
 }
-function slipForLine(l,M){
-  const k=M.cards.find(c=>c.id===l.card_id),dr=newDraft(),date=l.txn_date||l.post_date;
-  S.draft=Object.assign(dr,{fromLine:{id:l.id,holder:k.holder_id,person:personOf(M,k.holder_id),amount:l.amount,description:l.description.replace(/\s+/g,' ').trim(),card:{id:k.id,label:k.label,last4:k.last4}},
-    returnView:'month',card_id:k.id,slip_date:date,total:String(l.amount),supplier:L.parseDescriptor(l.description,l.post_date).merchant.replace(/\s+/g,' ')});
+function startLineSlip(l,card,holder,person,returnView){
+  const dr=newDraft(),date=l.txn_date||l.post_date;
+  S.draft=Object.assign(dr,{fromLine:{id:l.id,holder,person,amount:l.amount,description:l.description.replace(/\s+/g,' ').trim(),card},
+    returnView,card_id:card.id,slip_date:date,total:String(l.amount),supplier:L.parseDescriptor(l.description,l.post_date).merchant.replace(/\s+/g,' ')});
   S.view='capture';shell();
 }
+function slipForLine(l,M){const k=M.cards.find(c=>c.id===l.card_id);startLineSlip(l,{id:k.id,label:k.label,last4:k.last4},k.holder_id,personOf(M,k.holder_id),'month')}
 function editSlip(s,returnView){
   const dr=newDraft();
   S.draft=Object.assign(dr,{id:s.id,editing:s,returnView,existing:s.slip_files||[],mode:s.kind==='cash_withdrawal'?'cash':'purchase',card_id:s.card_id,slip_date:s.slip_date,supplier:s.supplier,total:String(s.total),currency:s.currency,foreign:s.currency!=='ZAR',
@@ -321,8 +323,8 @@ async function saveSlip(e){
     try{
       if(!navigator.onLine)throw new TypeError('Failed to fetch');
       rec.user_id=d.fromLine.holder;const ref=await uploadAndSave(rec,files);
-      const {error}=await sb.rpc('link_line',{p_line:d.fromLine.id,p_slip:rec.id});if(error)throw error;
-      toast(`${ref||'Slip'} saved and linked`);loadRefs().catch(()=>{});
+      const {error}=await sb.rpc(d.fromLine.holder===S.me.id&&!isFin()?'link_own_line':'link_line',{p_line:d.fromLine.id,p_slip:rec.id});if(error)throw error;
+      toast(`${ref||'Slip'} saved and linked`);await loadRefs().catch(()=>{});loadRefs().catch(()=>{});
       const v=d.returnView;S.draft=null;S.view=v;shell();
     }catch(x){btn.disabled=false;btn.textContent='Save slip';se.innerHTML=`<div class="note bad">${esc(isNet(x)?'No connection. The slip isn’t saved yet, so try again when you have signal.':friendly(x))}</div>`}
     return;
@@ -368,6 +370,26 @@ async function mineView(){
   const groups={};data.forEach(s=>(groups[s.period]??=[]).push(s));
   m.innerHTML=Object.entries(groups).map(([p,l])=>`<div class="card"><h2>${monthName(p)}</h2>${l.map(s=>`<div class="item" data-s="${s.id}" role="button" tabindex="0" style="cursor:pointer"><div class="m"><div class="t">${esc(s.supplier)}</div><div class="s">${esc(s.ref)} · ${esc(s.slip_date)} ${stPill(s)}</div></div><div class="amt">${money(s.total,s.currency)}</div></div>`).join('')}</div>`).join('');
   $$('[data-s]',m).forEach(x=>x.onclick=()=>slipModal(data.find(s=>s.id===x.dataset.s),mineView));
+}
+async function missingView(){
+  const m=$('#m');m.className='';m.innerHTML='<div class="card"><span class="spin"></span></div>';
+  try{await loadRefs()}catch{}
+  const list=S.missing||[],tabCount=$$('[data-go=missing]');
+  if(!list.length){m.innerHTML='<div class="card"><h2>Nothing missing</h2><p class="muted">Every line on your statements has a slip. If finance has uploaded a new statement, anything without a slip shows here.</p></div>';return}
+  const months={};list.forEach(l=>(months[l.period]??=[]).push(l));
+  m.innerHTML=`<div class="note warn">${list.length} statement line${list.length>1?'s':''} still need${list.length>1?'':'s'} a slip. Tap <b>Add slip</b> and take the photo.</div>`+Object.entries(months).map(([p,ls])=>`<div class="card"><h2>${monthName(p)}</h2>${ls.map(l=>`<div class="item" style="flex-wrap:wrap"><div class="m" style="min-width:200px"><div class="t">${esc(l.description.replace(/\s+/g,' '))}</div><div class="s">${esc(l.txn_date||l.post_date)} · ${esc(l.card_label)} (${esc(l.card_last4)})</div>${l.holder_note?`<div class="s"><b>Your note:</b> ${esc(l.holder_note)}</div>`:''}</div><div class="amt">${rand(l.amount)}</div><div style="display:flex;gap:.4rem;flex-wrap:wrap;width:100%"><button class="btn sm" data-ml="${l.id}">Add slip</button><button class="btn sm ghost" data-mp="${l.id}">Already captured</button><button class="btn sm ghost" data-mn="${l.id}">${l.holder_note?'Change note':'Add a note'}</button></div></div>`).join('')}</div>`).join('');
+  const line=id=>list.find(l=>l.id===id);
+  $$('[data-ml]',m).forEach(b=>b.onclick=()=>{const l=line(b.dataset.ml);startLineSlip(l,{id:l.card_id,label:l.card_label,last4:l.card_last4},S.me.id,S.me.full_name,'missing')});
+  $$('[data-mn]',m).forEach(b=>b.onclick=async()=>{const t=await ask('Note for finance');if(!t)return;const {error}=await sb.rpc('set_line_note',{p_line:b.dataset.mn,p_note:t});if(error){toast(friendly(error));return}toast('Note saved');missingView()});
+  $$('[data-mp]',m).forEach(b=>b.onclick=async()=>{
+    const l=line(b.dataset.mp),{data,error}=await sb.from('slips').select('*').eq('user_id',S.me.id).eq('status','captured').order('slip_date',{ascending:false});
+    if(error){toast(friendly(error));return}
+    const own=data.sort((a,c)=>Math.abs(+a.total-l.amount)-Math.abs(+c.total-l.amount));
+    const w=document.createElement('div');w.className='modal';document.body.append(w);
+    w.innerHTML=`<div><h2>Which slip is this?</h2><p class="muted" style="margin-bottom:.5rem">${esc(l.description.replace(/\s+/g,' '))}, ${rand(l.amount)}</p>${own.map(s=>`<div class="item"><div class="m"><div class="t">${esc(s.supplier)}</div><div class="s">${esc(s.ref)} · ${esc(s.slip_date)}</div></div><div class="amt">${money(s.total,s.currency)}</div><button class="btn sm" data-q="${s.id}">Link</button></div>`).join('')||'<p class="muted">You have no unmatched slips.</p>'}<button class="btn ghost full" id="qc" style="margin-top:.7rem">Close</button></div>`;
+    $('#qc',w).onclick=()=>w.remove();
+    $$('[data-q]',w).forEach(q=>q.onclick=async()=>{const {error}=await sb.rpc('link_own_line',{p_line:l.id,p_slip:q.dataset.q});if(error){toast(friendly(error));return}w.remove();toast('Slip linked');shell()});
+  });
 }
 async function slipModal(s,after){
   const w=document.createElement('div');w.className='modal';document.body.append(w);
@@ -419,7 +441,7 @@ async function monthView(){
   }).sort((a,b)=>a.p.full_name.localeCompare(b.p.full_name));
   const stat=r=>!r.hasStmt?'<span class="pill n">No statement</span>':r.missing||r.review?'<span class="pill o">Needs attention</span>':'<span class="pill g">Complete</span>';
   const peopleCard=`<div class="card"><h2>Cardholders</h2><div class="tw"><table class="people"><thead><tr><th>Person</th><th>Status</th><th class="n">Slips</th><th class="n">Rand value</th><th class="n">Lines matched</th><th class="n">No slip</th><th class="n">To review</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr data-who="${r.p.id}" tabindex="0" role="button" class="${who===r.p.id?'sel':''}"><td>${esc(r.p.full_name)}</td><td>${stat(r)}</td><td class="n">${r.slips}</td><td class="n">${rand(r.value)}</td><td class="n">${r.hasStmt?`${r.matched} / ${r.lines}`:'–'}</td><td class="n">${r.hasStmt?r.missing:'–'}</td><td class="n">${r.hasStmt?r.review:'–'}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">No cardholders yet.</td></tr>'}
+  ${rows.map(r=>`<tr data-who="${r.p.id}" tabindex="0" role="button" class="${who===r.p.id?'sel':''}"><td>${esc(r.p.full_name)}${r.missing?`<br><button class="btn sm ghost" data-rem="${r.p.id}" style="margin-top:.3rem">Copy reminder</button>`:''}</td><td>${stat(r)}</td><td class="n">${r.slips}</td><td class="n">${rand(r.value)}</td><td class="n">${r.hasStmt?`${r.matched} / ${r.lines}`:'–'}</td><td class="n">${r.hasStmt?r.missing:'–'}</td><td class="n">${r.hasStmt?r.review:'–'}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">No cardholders yet.</td></tr>'}
   </tbody></table></div>${who?`<div class="note info" style="margin:.7rem 0 0">Showing <b>${esc(personOf(M,who))}</b> only. <button class="btn sm ghost" id="wa">Show everyone</button></div>`:'<p class="muted" style="margin-top:.5rem">Tap a person to see only their slips.</p>'}</div>`;
   m.innerHTML=`<div class="bar"><div><label class="lbl" for="mp">Month</label><input id="mp" type="month" value="${S.month.slice(0,7)}"></div><span class="sp"></span>
   ${locked?'<span class="pill r">Locked</span>':`<button class="btn ghost" id="up">Upload statement</button>`}<button class="btn" id="xl">Export Excel + photos</button>
@@ -440,6 +462,7 @@ async function monthView(){
   $('#mp').onchange=e=>{if(e.target.value){S.month=e.target.value+'-01';monthView()}};
   $$('[data-who]',m).forEach(r=>r.onclick=()=>{S.who=S.who===r.dataset.who?null:r.dataset.who;monthView()});
   const wa=$('#wa');if(wa)wa.onclick=()=>{S.who=null;monthView()};
+  $$('[data-rem]',m).forEach(b=>b.onclick=e=>{e.stopPropagation();reminderModal(M,b.dataset.rem)});
   const up=$('#up');if(up)up.onclick=()=>statementWizard(M);
   $('#xl').onclick=()=>exportMonth(M);
   $('#lk').onclick=async()=>{
@@ -453,10 +476,23 @@ async function monthView(){
   $$('[data-pick]',m).forEach(b=>b.onclick=()=>pickSlip(b.dataset.pick,M));
   $$('[data-add]',m).forEach(b=>b.onclick=()=>slipForLine(M.lines.find(x=>x.id===b.dataset.add),M));
 }
+function reminderText(M,id){
+  const p=M.people.find(x=>x.id===id),ls=M.lines.filter(l=>l.status==='unmatched'&&M.cards.find(k=>k.id===l.card_id)?.holder_id===id);
+  const money2=n=>'R'+Number(n).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const rows=ls.map(l=>`- ${l.txn_date||l.post_date}: ${l.description.replace(/\s+/g,' ').trim()}, ${money2(l.amount)}`).join('\n');
+  return `Hi ${p.full_name.split(/\s+/)[0]}, ${ls.length} ${ls.length>1?'transactions need slips':'transaction needs a slip'} for ${monthName(S.month)}:\n\n${rows}\n\nPlease open the Slips app, go to Missing, and add each slip by [date]. If you don't have a slip, add a note there.\n\n${location.origin+location.pathname}`;
+}
+function reminderModal(M,id){
+  const w=document.createElement('div');w.className='modal';document.body.append(w);const t=reminderText(M,id);
+  w.innerHTML=`<div><h2>Reminder for ${esc(personOf(M,id))}</h2><p class="muted" style="margin-bottom:.5rem">Fill in the date, then copy this into WhatsApp or email.</p><div class="field"><textarea id="rt" rows="10" aria-label="Reminder message" style="min-height:220px">${esc(t)}</textarea></div><div class="row"><button class="btn ghost" id="rc">Close</button>${navigator.share?'<button class="btn ghost" id="rs">Share</button>':''}<button class="btn" id="ry">Copy</button></div></div>`;
+  $('#rc',w).onclick=()=>w.remove();
+  $('#ry',w).onclick=async()=>{const a=$('#rt',w);try{await navigator.clipboard.writeText(a.value);toast('Reminder copied')}catch{a.focus();a.select();toast('Press copy on the selected text')}};
+  const rs=$('#rs',w);if(rs)rs.onclick=()=>navigator.share({text:$('#rt',w).value}).catch(()=>{});
+}
 const card=(t,b)=>`<div class="card"><h2>${esc(t)}</h2><div class="tw">${b}</div></div>`;
 function lineRow(l,M,cands){
   const c=cands?candidates(l,M):[];
-  return `<div class="item" style="flex-wrap:wrap"><div class="m" style="min-width:220px"><div class="t">${esc(l.description)}</div><div class="s">${esc(l.txn_date||l.post_date)} · ${esc(cardOf(M,l.card_id)||'Card not recognised')} ${l.card_id?'· '+esc(personOf(M,M.cards.find(k=>k.id===l.card_id)?.holder_id)):''}</div></div><div class="amt">${rand(l.amount)}</div>
+  return `<div class="item" style="flex-wrap:wrap"><div class="m" style="min-width:220px"><div class="t">${esc(l.description)}</div><div class="s">${esc(l.txn_date||l.post_date)} · ${esc(cardOf(M,l.card_id)||'Card not recognised')} ${l.card_id?'· '+esc(personOf(M,M.cards.find(k=>k.id===l.card_id)?.holder_id)):''}</div>${l.holder_note?`<div class="s"><b>Cardholder’s note:</b> ${esc(l.holder_note)}</div>`:''}</div><div class="amt">${rand(l.amount)}</div>
   <div style="display:flex;gap:.4rem;flex-wrap:wrap">${c.map(s=>`<button class="btn sm green" data-link="${l.id}|${s.id}">Match ${esc(s.ref)} (${esc(s.supplier)}, ${money(s.total,s.currency)})</button>`).join('')}
   ${cands?`<button class="btn sm ghost" data-reject="${l.id}">Not a match</button>`:`${l.card_id?`<button class="btn sm" data-add="${l.id}">Add slip</button>`:''}<button class="btn sm ghost" data-pick="${l.id}">Link existing slip</button><button class="btn sm ghost" data-ignore="${l.id}">No slip needed</button>`}</div></div>`;
 }
@@ -596,7 +632,7 @@ async function buildWorkbook(M,cats,fileName){
   all.columns.forEach((c,i)=>c.width=[10,11,12,20,24,14,26,22,10,18,18,18,30,8,12,12,10,18,28,8,30][i]);
   const ex=wb.addWorksheet('Exceptions');ex.getRow(1).values=['Issue','Date','Person / card','Detail','Rand amount'];ex.getRow(1).eachCell(hdr);
   const add=(a,b,c,d,e)=>ex.addRow([a,b,c,d,e]);
-  M.lines.filter(l=>l.status==='unmatched'&&!l.is_credit).forEach(l=>add('On statement, no slip',l.txn_date||l.post_date,cardOf(M,l.card_id),l.description,Number(l.amount)));
+  M.lines.filter(l=>l.status==='unmatched'&&!l.is_credit).forEach(l=>add('On statement, no slip',l.txn_date||l.post_date,cardOf(M,l.card_id),l.description+(l.holder_note?` | Note: ${l.holder_note}`:''),Number(l.amount)));
   M.lines.filter(l=>l.status==='possible').forEach(l=>add('Possible match not confirmed',l.txn_date||l.post_date,cardOf(M,l.card_id),l.description,Number(l.amount)));
   M.lines.filter(l=>l.status==='ignored'&&l.ignore_reason!=='Credit or payment').forEach(l=>add('Marked no slip needed',l.post_date,cardOf(M,l.card_id),`${l.description}: ${l.ignore_reason}`,Number(l.amount)));
   M.slips.filter(s=>s.no_slip).forEach(s=>add('No slip',s.slip_date,personOf(M,s.user_id),`${s.ref} ${s.supplier}: ${s.no_slip_reason}`,s.amount_zar!=null?Number(s.amount_zar):null));

@@ -89,3 +89,4 @@ input::-webkit-date-and-time-value{text-align:left;min-height:1.4em}
 .login{margin-top:6vh}
 table.people tbody tr{cursor:pointer}table.people tbody tr:hover,table.people tbody tr:focus{background:var(--blue-lt)}
 table.people tr.sel{background:var(--blue-lt);box-shadow:inset 3px 0 0 var(--blue)}
+.count{display:inline-block;min-width:1.25em;padding:0 .3em;border-radius:999px;background:var(--red);color:#fff;font-size:.72rem;line-height:1.35;text-align:center}
