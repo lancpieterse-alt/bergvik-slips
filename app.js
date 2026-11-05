@@ -127,7 +127,7 @@ function captureView(){
   m.innerHTML=`<div id="outbox"></div>
   ${ed?`<div class="note info">Editing <b>${esc(ed.ref)}</b>. Change what’s wrong, then save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
   ${fl?`<div class="note info">Adding the slip for <b>${esc(fl.person)}</b> (${rand(fl.amount)}, ${esc(fl.description)}). It links to this statement line when you save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
-  ${d.no_slip||cash?'':`<div class="big"><label class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>${d.files.length?'Add a photo':'Take photo'}<input id="cam" class="hide" type="file" accept="image/*" capture="environment"></label>
+  ${(d.no_slip&&!ed)||cash?'':`<div class="big"><label class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>${d.files.length||d.existing?.length?'Add a photo':'Take photo'}<input id="cam" class="hide" type="file" accept="image/*" capture="environment"></label>
   <label class="b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload PDF or file<input id="fil" class="hide" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>`}
   ${ed||fl?'':`<div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>`}
   ${ed&&d.existing?.length?`<p class="muted" style="margin-bottom:.8rem">${d.existing.length} saved image${d.existing.length>1?'s':''} kept with this slip.</p>`:''}
@@ -204,15 +204,16 @@ function notices(d,rerender){
 }
 async function addFile(file,fromCamera){
   if(!file)return;const d=S.draft;
+  const dropNoSlip=()=>{if(d.editing&&d.no_slip){d.no_slip=false;d.no_slip_reason='';return true}return false};
   if(file.size>25e6){toast('That file is too big. The limit is 25 MB.');return}
   if(file.type==='application/pdf'){
     if(file.size>1e7){toast('PDFs must be under 10 MB.');return}
-    d.files.push({blob:file,mime:'application/pdf',ext:'pdf'});captureView();if(d.files.length===1&&!d.editing)readSlip(d,file,'application/pdf');return}
+    d.files.push({blob:file,mime:'application/pdf',ext:'pdf'});if(dropNoSlip())d.notices=[['ok','Slip added. This is no longer marked as “no slip”, so save your changes.']];captureView();if(d.files.length===1&&!d.editing)readSlip(d,file,'application/pdf');return}
   let img;try{img=await toImage(file)}catch{toast('That file could not be opened. Try a JPG, PNG or PDF.');return}
   const q=quality(img.cv,img.w,img.h);
   if(q.issues.length&&fromCamera&&d.retakes<2){d.retakes++;d.notices=[['bad',q.issues.join(' ')+' Please retake it.']];captureView();return}
   if(q.issues.length){d.quality_flag=true;d.notices=[['warn','This image may be hard to read. Finance will see a quality flag.']]}else d.notices=[];
-  d.files.push({blob:img.blob,mime:'image/jpeg',ext:'jpg',url:URL.createObjectURL(img.blob)});captureView();
+  d.files.push({blob:img.blob,mime:'image/jpeg',ext:'jpg',url:URL.createObjectURL(img.blob)});if(dropNoSlip())d.notices=[['ok','Slip added. This is no longer marked as “no slip”, so save your changes.']];captureView();
   if(d.files.length===1&&!d.editing)readSlip(d,img.blob,'image/jpeg');
 }
 async function readSlip(d,blob,mime){
@@ -224,15 +225,17 @@ async function readSlip(d,blob,mime){
     if(error||!data?.fields){captureView();return}
     if(S.draft!==d)return;
     const f=data.fields;
-    if(f.readable===false&&mime==='image/jpeg'&&d.retakes<2){d.retakes++;d.files.pop();d.notices=[['bad','The date, supplier or total can’t be read. Please retake the photo.']];captureView();return}
-    if(f.readable===false)d.quality_flag=true;
+    if(!f.supplier&&!f.slip_date&&!f.total&&mime==='image/jpeg'&&d.retakes<2){d.retakes++;d.files.pop();d.notices=[['bad','Nothing on this photo can be read. Please retake it.']];captureView();return}
+    const gaps=[!f.slip_date&&'date',!f.supplier&&'supplier',!f.total&&'total'].filter(Boolean);
+    if(f.readable===false||gaps.length)d.quality_flag=true;
+    if(!f.slip_date&&!d.fromLine)d.slip_date='';
     if(f.supplier&&!d.supplier)d.supplier=f.supplier;
     const fd=L.fixDayMonth(f.slip_date,today());if(fd.date&&fd.date<=today())d.slip_date=fd.date;
     if(f.total&&!d.total)d.total=f.total.toFixed(2);
     if(f.currency&&f.currency!=='ZAR'&&!d.fromLine){d.currency=f.currency.toUpperCase();d.foreign=true}
     if(f.vat_amount!=null&&!d.vat_amount)d.vat_amount=Number(f.vat_amount).toFixed(2);
     d.ai_read=true;suggest(d);notices(d);
-    d.notices.push(['info','Filled in from the slip. Please check the date and amount.']);
+    d.notices.push(gaps.length?['warn',`The ${gaps.join(' and ')} couldn’t be read from this slip. Your photo is kept, so type ${gaps.length>1?'them':'it'} in and save.`]:['info','Filled in from the slip. Please check the date and amount.']);
     if(f.is_card_terminal_slip_only)d.notices.push(['warn','This looks like a card-machine slip. Finance needs the till slip or tax invoice, so please add that too.']);
   }catch{d.reading=false}
   if(S.view==='capture')captureView();
@@ -278,7 +281,7 @@ async function saveEdit(d,rec0,files){
   if(pn)rec.project_id=await ensureOption('project',pn);
   if(cn)rec.client_id=await ensureOption('client',cn);
   const start=d.existing?.length||0;
-  for(let i=0;i<files.length;i++){const f=files[i],path=`${S.me.id}/${id}/${start+i+1}-${Date.now()}.${f.ext}`;
+  for(let i=0;i<files.length;i++){const f=files[i],path=`${d.editing.user_id}/${id}/${start+i+1}-${Date.now()}.${f.ext}`;
     const {error}=await sb.storage.from('slips').upload(path,f.blob,{contentType:f.mime,upsert:false});if(error)throw error;
     rows.push({slip_id:id,path,mime:f.mime,size_bytes:f.blob.size,page_no:start+i+1})}
   const {error}=await sb.from('slips').update(rec).eq('id',id).select('id').single();if(error)throw error;
