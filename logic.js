@@ -166,9 +166,10 @@
   /* Works out which card a workbook tab belongs to, from its heading, its name or the person's name */
   function cardForSheet(sheetName,rows,headerIdx,cards){
     const last4=accountLast4(rows,headerIdx,sheetName);
-    if(last4)return {last4,card:cards.find(c=>c.last4===last4)||null};
+    const byNo=n=>cards.find(c=>c.last4===n||c.statement_last4===n)||null;
+    if(last4)return {last4,card:byNo(last4)};
     const digits=String(sheetName||'').match(/(?:^|\D)(\d{4})(?:\D|$)/);
-    if(digits){const hit=cards.find(c=>c.last4===digits[1]);return {last4:digits[1],card:hit||null}}
+    if(digits)return {last4:digits[1],card:byNo(digits[1])};
     const n=norm(sheetName),named=cards.filter(c=>{const full=norm(c.holder_name);return full&&(n.includes(full)||n.split(/[^a-z]+/).includes(full.split(' ')[0]))});
     return {last4:null,card:named.length===1?named[0]:null};
   }

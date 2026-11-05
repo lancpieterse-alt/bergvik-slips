@@ -486,12 +486,12 @@ function statementWizard(M){
     const h=L.findHeaderRow(rows),head=rows[h].map((c,i)=>String(c||`Column ${i+1}`)),g=L.guessColumns(head);
     const sig=head.join('|'),map=saved?.sig===sig?saved.map:g,body=rows.slice(h+1);
     const sel=(k,l,opt)=>`<div class="field"><label class="lbl" for="c_${k}">${l}</label><select id="c_${k}">${opt?'<option value="">Not in file</option>':''}${head.map((c,i)=>`<option value="${i}" ${map[k]===i?'selected':''}>${esc(c)}</option>`).join('')}</select></div>`;
-    const active=M.cards.filter(c=>c.active),fileLast4=L.accountLast4(rows,h,f.name),fileCard=active.find(c=>c.last4===fileLast4);
+    const active=M.cards.filter(c=>c.active),fileLast4=L.accountLast4(rows,h,f.name),fileCard=active.find(c=>c.last4===fileLast4||c.statement_last4===fileLast4);
     $('#s2').innerHTML=`<div class="row">${sel('date','Date column')}${sel('description','Description column')}</div><div class="row">${sel('amount','Amount column',1)}${sel('debit','Debit column',1)}${sel('credit','Credit column',1)}</div>
     <div class="field"><label class="lbl" for="c_card">Which card is this statement for?</label><select id="c_card"><option value="">${fileLast4?'Choose a card…':'Work it out from each line'}</option>${active.map(c=>`<option value="${c.id}" ${c.id===fileCard?.id?'selected':''}>${esc(c.label)} (${c.last4}), ${esc(personOf(M,c.holder_id))}</option>`).join('')}</select></div>
-    ${fileLast4&&!fileCard?`<div class="note bad">This file is for a card ending in ${esc(fileLast4)}, but no active card has those digits. Add the card under People &amp; cards first, or check you have the right file.</div>`:fileCard?`<div class="note ok">Card found in the file: ending in ${esc(fileLast4)}.</div>`:''}
+    ${fileLast4&&!fileCard?`<div class="note warn">This file’s number ends in ${esc(fileLast4)}, and no card has that number yet. Choose the card above and the app will remember this number for next time.</div>`:fileCard?`<div class="note ok">Card found in the file: statement number ending in ${esc(fileLast4)}.</div>`:''}
     <div id="s3"></div><button class="btn" id="si">Import and match</button>`;
-    $('#si').onclick=()=>doImport(f,body,head,sig,M)};
+    $('#si').onclick=()=>doImport(f,body,head,sig,M,fileLast4&&!fileCard?fileLast4:null)};
 }
 const col=id=>{const v=$(id).value;return v===''?null:+v};
 function tabsWizard(file,tabs,total,M){
@@ -499,7 +499,7 @@ function tabsWizard(file,tabs,total,M){
   const parts=tabs.map(t=>{const h=L.findHeaderRow(t.rows),map=L.guessColumns(t.rows[h].map(String)),lines=L.normaliseRows(t.rows.slice(h+1),map),found=L.cardForSheet(t.name,t.rows,h,active);return {name:t.name,lines,found}});
   $('#s2').innerHTML=`<p class="muted" style="margin-bottom:.5rem">This workbook has ${tabs.length} statement tabs${total>tabs.length?` (${total-tabs.length} other tab${total-tabs.length>1?'s':''} skipped)`:''}. Check the card for each tab.</p>
   <div class="tw"><table><thead><tr><th>Tab</th><th class="n">Lines</th><th class="n">Rand total</th><th>Card</th></tr></thead><tbody>
-  ${parts.map((p,i)=>`<tr><td>${esc(p.name)}</td><td class="n">${p.lines.length}</td><td class="n">${rand(p.lines.filter(l=>!l.is_credit).reduce((a,l)=>a+l.amount,0))}</td><td><select id="tab${i}" aria-label="Card for ${esc(p.name)}"><option value="">Choose a card…</option><option value="skip">Skip this tab</option>${active.map(c=>`<option value="${c.id}" ${c.id===p.found.card?.id?'selected':''}>${esc(c.holder_name)}: ${esc(c.label)} (${c.last4})</option>`).join('')}</select>${p.found.last4&&!p.found.card?`<div class="muted" style="color:var(--red)">Card ending in ${esc(p.found.last4)} isn’t set up yet.</div>`:''}</td></tr>`).join('')}
+  ${parts.map((p,i)=>`<tr><td>${esc(p.name)}</td><td class="n">${p.lines.length}</td><td class="n">${rand(p.lines.filter(l=>!l.is_credit).reduce((a,l)=>a+l.amount,0))}</td><td><select id="tab${i}" aria-label="Card for ${esc(p.name)}"><option value="">Choose a card…</option><option value="skip">Skip this tab</option>${active.map(c=>`<option value="${c.id}" ${c.id===p.found.card?.id?'selected':''}>${esc(c.holder_name)}: ${esc(c.label)} (${c.last4})</option>`).join('')}</select>${p.found.last4&&!p.found.card?`<div class="muted" style="color:var(--orange)">Number ending in ${esc(p.found.last4)} isn’t on a card yet. Choose the card and it will be remembered.</div>`:''}</td></tr>`).join('')}
   </tbody></table></div><div id="s3" style="margin-top:.6rem"></div><button class="btn" id="si" style="margin-top:.5rem">Import and match</button>`;
   $('#si').onclick=()=>{
     const picks=parts.map((p,i)=>({p,v:$('#tab'+i).value}));
@@ -508,17 +508,20 @@ function tabsWizard(file,tabs,total,M){
     const seen=chosen.map(x=>x.v);if(new Set(seen).size<seen.length){$('#s3').innerHTML='<div class="note bad">Two tabs are set to the same card. Check them, then import again.</div>';return}
     const lines=chosen.flatMap(x=>x.p.lines.map(l=>({...l,card_id:x.v})));
     if(!lines.length){$('#s3').innerHTML='<div class="note bad">No transactions to import.</div>';return}
-    runImport(file.name,lines,$('#si'))};
+    const news=chosen.filter(x=>x.p.found.last4&&!x.p.found.card);
+    Promise.all(news.map(x=>rememberNumber(x.v,x.p.found.last4))).then(()=>runImport(file.name,lines,$('#si'))).catch(x=>{$('#s3').innerHTML=`<div class="note bad">${esc(/unique|duplicate/i.test(x.message)?'Another card already uses that statement number.':friendly(x))}</div>`})};
 }
-async function doImport(file,body,head,sig,M){
+async function rememberNumber(cardId,no){if(!cardId||!no)return;const {error}=await sb.from('cards').update({statement_last4:no}).eq('id',cardId);if(error)throw error}
+async function doImport(file,body,head,sig,M,newNo){
   const map={date:col('#c_date'),description:col('#c_description'),amount:col('#c_amount'),debit:col('#c_debit'),credit:col('#c_credit')};
   if(map.amount==null&&map.debit==null){$('#s3').innerHTML='<div class="note bad">Choose an amount or debit column.</div>';return}
   const lines=L.normaliseRows(body,map);if(!lines.length){$('#s3').innerHTML='<div class="note bad">No valid rows. Check the columns above.</div>';return}
   store.set('slips-stmt-map',{sig,map});
   const forced=$('#c_card').value||null,btn=$('#si');btn.disabled=true;btn.textContent='Importing…';
-  const byLast4=Object.fromEntries(M.cards.filter(c=>c.active).map(c=>[c.last4,c.id]));
+  const byLast4=Object.fromEntries(M.cards.filter(c=>c.active).flatMap(c=>[[c.last4,c.id],...(c.statement_last4?[[c.statement_last4,c.id]]:[])]));
   lines.forEach(l=>{l.card_id=forced||byLast4[l.last4]||null});
   if(lines.some(l=>!l.card_id&&!l.is_credit)){btn.disabled=false;btn.textContent='Import and match';$('#s3').innerHTML='<div class="note bad">Choose which card this statement is for. Nothing was imported.</div>';return}
+  try{await rememberNumber(forced,newNo)}catch(x){btn.disabled=false;btn.textContent='Import and match';$('#s3').innerHTML=`<div class="note bad">${esc(/unique|duplicate/i.test(x.message)?'Another card already uses that statement number.':friendly(x))}</div>`;return}
   runImport(file.name,lines,btn);
 }
 async function runImport(fileName,lines,btn){
@@ -634,7 +637,7 @@ async function peopleView(){
   <div class="field"><label class="lbl" for="nr">Access</label><select id="nr"><option value="cardholder">Cardholder</option><option value="finance">Finance</option></select></div></div><button class="btn">Add person</button></form></div>
   <div class="card"><h2>People</h2><div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Cards</th><th></th></tr></thead><tbody>
   ${p.data.map(u=>`<tr><td>${esc(u.full_name)} ${u.active?'':'<span class="pill n">Inactive</span>'}</td><td>${esc(u.email)}</td><td>${u.role==='finance'?'Finance':'Cardholder'}</td>
-  <td>${c.data.filter(k=>k.holder_id===u.id&&k.active).map(k=>`${esc(k.label)} (${k.last4}) <button class="btn sm ghost" data-rc="${k.id}">Remove</button>`).join('<br>')||'<span class="muted">None</span>'}</td>
+  <td>${c.data.filter(k=>k.holder_id===u.id&&k.active).map(k=>`${esc(k.label)} (${k.last4})${k.statement_last4?` <span class="muted">statement ${k.statement_last4}</span>`:''} <button class="btn sm ghost" data-rc="${k.id}">Remove</button>`).join('<br>')||'<span class="muted">None</span>'}</td>
   <td style="white-space:nowrap">${u.active?`<button class="btn sm ghost" data-ac="${u.id}">Add card</button> <button class="btn sm ghost" data-rp="${u.id}">Reset password</button> <button class="btn sm ghost" data-ar="${u.id}" data-r="${u.role}">${u.role==='finance'?'Make cardholder':'Make finance'}</button> <button class="btn sm red" data-da="${u.id}">Deactivate</button>`:`<button class="btn sm ghost" data-re="${u.id}">Reactivate</button>`}</td></tr>`).join('')}
   </tbody></table></div></div>`;
   const run=async(fn,ok)=>{try{await fn();if(ok)toast(ok);peopleView()}catch(e){toast(friendly(e))}};
@@ -649,9 +652,9 @@ async function peopleView(){
 }
 function cardForm(holder){
   const w=document.createElement('div');w.className='modal';document.body.append(w);
-  w.innerHTML=`<div><h2>Add a card</h2><form><div class="field"><label class="lbl" for="kl">Card name</label><input id="kl" type="text" placeholder="FNB Cheque Card" required></div><div class="field"><label class="lbl" for="k4">Last 4 digits only</label><input id="k4" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></div><div id="ke"></div><div class="row"><button type="button" class="btn ghost" id="kc">Cancel</button><button class="btn">Add card</button></div></form></div>`;
+  w.innerHTML=`<div><h2>Add a card</h2><form><div class="field"><label class="lbl" for="kl">Card name</label><input id="kl" type="text" placeholder="FNB Cheque Card" required></div><div class="field"><label class="lbl" for="k4">Last 4 digits on the card</label><input id="k4" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></div><div class="field"><label class="lbl" for="k5">Last 4 digits on the bank statement (optional)</label><input id="k5" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"><p class="muted" style="margin-top:.3rem">Only if the statement shows a different number. The app also learns this the first time you upload that card’s statement.</p></div><div id="ke"></div><div class="row"><button type="button" class="btn ghost" id="kc">Cancel</button><button class="btn">Add card</button></div></form></div>`;
   $('#kc',w).onclick=()=>w.remove();
-  $('form',w).onsubmit=async e=>{e.preventDefault();const {error}=await sb.from('cards').insert({holder_id:holder,label:$('#kl',w).value.trim(),last4:$('#k4',w).value});
+  $('form',w).onsubmit=async e=>{e.preventDefault();const {error}=await sb.from('cards').insert({holder_id:holder,label:$('#kl',w).value.trim(),last4:$('#k4',w).value,statement_last4:$('#k5',w).value||null});
     if(error){$('#ke',w).innerHTML=`<div class="note bad">${esc(/duplicate|unique/.test(error.message)?'Another active card already uses those digits.':friendly(error))}</div>`;return}
     w.remove();await loadRefs();peopleView()};
 }
