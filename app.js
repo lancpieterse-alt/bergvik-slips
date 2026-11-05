@@ -114,17 +114,18 @@ const newDraft=()=>({id:crypto.randomUUID(),mode:'purchase',files:[],slip_date:t
   no_slip:false,no_slip_reason:'',cash_change_returned:'',quality_flag:false,ai_read:false,foreign:false,card_id:'',retakes:0,notices:[],reading:false});
 function captureView(){
   const m=$('#m');m.className='';
-  const ed=S.draft?.editing;
-  const cards=ed?S.cards.filter(c=>c.id===S.draft.card_id||(c.holder_id===ed.user_id&&ed.user_id===S.me.id)):myCards();
+  const ed=S.draft?.editing,fl=S.draft?.fromLine;
+  const cards=fl?[fl.card]:ed?S.cards.filter(c=>c.id===S.draft.card_id||(c.holder_id===ed.user_id&&ed.user_id===S.me.id)):myCards();
   if(!cards.length){m.innerHTML='<div class="card"><h2>No card assigned</h2><p class="muted">Ask finance to link your company card to your account.</p></div>';return}
   if(!S.draft)S.draft=newDraft();
   const d=S.draft; if(!d.card_id)d.card_id=store.get('slips-card','')&&cards.some(c=>c.id===store.get('slips-card',''))?store.get('slips-card',''):cards[0].id;
   const cash=d.mode==='cash', cat=S.cats.find(c=>c.id===d.category_id);
   m.innerHTML=`<div id="outbox"></div>
   ${ed?`<div class="note info">Editing <b>${esc(ed.ref)}</b>. Change what’s wrong, then save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
+  ${fl?`<div class="note info">Adding the slip for <b>${esc(fl.person)}</b> (${rand(fl.amount)}, ${esc(fl.description)}). It links to this statement line when you save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
   ${d.no_slip||cash?'':`<div class="big"><label class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>${d.files.length?'Add a photo':'Take photo'}<input id="cam" class="hide" type="file" accept="image/*" capture="environment"></label>
   <label class="b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload PDF or file<input id="fil" class="hide" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>`}
-  ${ed?'':`<div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>`}
+  ${ed||fl?'':`<div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>`}
   ${ed&&d.existing?.length?`<p class="muted" style="margin-bottom:.8rem">${d.existing.length} saved image${d.existing.length>1?'s':''} kept with this slip.</p>`:''}
   <div class="thumbs">${d.files.map((f,i)=>`<div class="thumb">${f.url?`<img src="${f.url}" alt="Slip page ${i+1}">`:'PDF'}<button data-rm="${i}" aria-label="Remove">×</button></div>`).join('')}</div>
   ${d.reading?'<div class="note info"><span class="spin"></span> Reading the slip…</div>':''}
@@ -157,7 +158,7 @@ function captureView(){
   wireName('client','f_cl','client_name');wireName('project','f_prj','project_name');
   $$('[data-ct]',m).forEach(b=>b.onclick=()=>{d.cost_to=b.dataset.ct;captureView()});
   $$('[data-rm]',m).forEach(b=>b.onclick=()=>{d.files.splice(+b.dataset.rm,1);captureView()});
-  if(ed)$('#ec').onclick=()=>{const v=d.returnView;S.draft=null;S.view=v;shell()};
+  if(ed||fl)$('#ec').onclick=()=>{const v=d.returnView;S.draft=null;S.view=v;shell()};
   else{$('#ns').onclick=()=>{d.no_slip=!d.no_slip;d.mode='purchase';d.files=[];d.notices=[];captureView()};
   $('#cw').onclick=()=>{d.mode=cash?'purchase':'cash';d.no_slip=false;d.notices=[];d.supplier=cash?'':'Cash withdrawal';captureView()}}
   $('#sf').onsubmit=saveSlip;
@@ -224,7 +225,7 @@ async function readSlip(d,blob,mime){
     if(f.supplier&&!d.supplier)d.supplier=f.supplier;
     const fd=L.fixDayMonth(f.slip_date,today());if(fd.date&&fd.date<=today())d.slip_date=fd.date;
     if(f.total&&!d.total)d.total=f.total.toFixed(2);
-    if(f.currency&&f.currency!=='ZAR'){d.currency=f.currency.toUpperCase();d.foreign=true}
+    if(f.currency&&f.currency!=='ZAR'&&!d.fromLine){d.currency=f.currency.toUpperCase();d.foreign=true}
     if(f.vat_amount!=null&&!d.vat_amount)d.vat_amount=Number(f.vat_amount).toFixed(2);
     d.ai_read=true;suggest(d);notices(d);
     d.notices.push(['info','Filled in from the slip. Please check the date and amount.']);
@@ -255,7 +256,7 @@ function validate(d){
   return null;
 }
 async function uploadAndSave(rec0,files){
-  const uid=S.me.id,rows=[],{_project_name:pn,_client_name:cn,...rec}=rec0;
+  const rows=[],{_project_name:pn,_client_name:cn,...rec}=rec0,uid=rec.user_id||S.me.id;
   if(pn)rec.project_id=await ensureOption('project',pn);
   if(cn)rec.client_id=await ensureOption('client',cn);
   for(let i=0;i<files.length;i++){const f=files[i],path=`${uid}/${rec.id}/${i+1}.${f.ext}`;
@@ -278,6 +279,12 @@ async function saveEdit(d,rec0,files){
     rows.push({slip_id:id,path,mime:f.mime,size_bytes:f.blob.size,page_no:start+i+1})}
   const {error}=await sb.from('slips').update(rec).eq('id',id).select('id').single();if(error)throw error;
   if(rows.length){const r=await sb.from('slip_files').insert(rows);if(r.error)throw r.error}
+}
+function slipForLine(l,M){
+  const k=M.cards.find(c=>c.id===l.card_id),dr=newDraft(),date=l.txn_date||l.post_date;
+  S.draft=Object.assign(dr,{fromLine:{id:l.id,holder:k.holder_id,person:personOf(M,k.holder_id),amount:l.amount,description:l.description.replace(/\s+/g,' ').trim(),card:{id:k.id,label:k.label,last4:k.last4}},
+    returnView:'month',card_id:k.id,slip_date:date,total:String(l.amount),supplier:L.parseDescriptor(l.description,l.post_date).merchant.replace(/\s+/g,' ')});
+  S.view='capture';shell();
 }
 function editSlip(s,returnView){
   const dr=newDraft();
@@ -303,6 +310,16 @@ async function saveSlip(e){
   const rec=buildSlip(d),files=d.files.map(({blob,mime,ext})=>({blob,mime,ext}));
   store.set('slips-card',d.card_id);store.set('slips-costto',d.cost_to);if(d.department_id)store.set('slips-dept',d.department_id);
   if(d.supplier&&d.category_id){const l=store.get('slips-learn',{});l[d.supplier.trim().toLowerCase().split(/\s+/)[0]]=d.category_id;store.set('slips-learn',l)}
+  if(d.fromLine){
+    try{
+      if(!navigator.onLine)throw new TypeError('Failed to fetch');
+      rec.user_id=d.fromLine.holder;const ref=await uploadAndSave(rec,files);
+      const {error}=await sb.rpc('link_line',{p_line:d.fromLine.id,p_slip:rec.id});if(error)throw error;
+      toast(`${ref||'Slip'} saved and linked`);loadRefs().catch(()=>{});
+      const v=d.returnView;S.draft=null;S.view=v;shell();
+    }catch(x){btn.disabled=false;btn.textContent='Save slip';se.innerHTML=`<div class="note bad">${esc(isNet(x)?'No connection. The slip isn’t saved yet, so try again when you have signal.':friendly(x))}</div>`}
+    return;
+  }
   if(d.editing){
     try{
       await saveEdit(d,rec,files);toast(`${d.editing.ref} updated`);loadRefs().catch(()=>{});
@@ -426,22 +443,25 @@ async function monthView(){
   $$('[data-reject]',m).forEach(b=>b.onclick=async()=>{const {error}=await sb.from('statement_lines').update({status:'unmatched'}).eq('id',b.dataset.reject);if(error)toast(friendly(error));monthView()});
   $$('[data-ignore]',m).forEach(b=>b.onclick=async()=>{const reason=await ask('Why does this line need no slip? (e.g. bank fee)');if(!reason)return;const {error}=await sb.from('statement_lines').update({status:'ignored',ignore_reason:reason}).eq('id',b.dataset.ignore);if(error)toast(friendly(error));monthView()});
   $$('[data-pick]',m).forEach(b=>b.onclick=()=>pickSlip(b.dataset.pick,M));
+  $$('[data-add]',m).forEach(b=>b.onclick=()=>slipForLine(M.lines.find(x=>x.id===b.dataset.add),M));
 }
 const card=(t,b)=>`<div class="card"><h2>${esc(t)}</h2><div class="tw">${b}</div></div>`;
 function lineRow(l,M,cands){
   const c=cands?candidates(l,M):[];
   return `<div class="item" style="flex-wrap:wrap"><div class="m" style="min-width:220px"><div class="t">${esc(l.description)}</div><div class="s">${esc(l.txn_date||l.post_date)} · ${esc(cardOf(M,l.card_id)||'Card not recognised')} ${l.card_id?'· '+esc(personOf(M,M.cards.find(k=>k.id===l.card_id)?.holder_id)):''}</div></div><div class="amt">${rand(l.amount)}</div>
   <div style="display:flex;gap:.4rem;flex-wrap:wrap">${c.map(s=>`<button class="btn sm green" data-link="${l.id}|${s.id}">Match ${esc(s.ref)} (${esc(s.supplier)}, ${money(s.total,s.currency)})</button>`).join('')}
-  ${cands?`<button class="btn sm ghost" data-reject="${l.id}">Not a match</button>`:`<button class="btn sm ghost" data-pick="${l.id}">Link a slip</button><button class="btn sm ghost" data-ignore="${l.id}">No slip needed</button>`}</div></div>`;
+  ${cands?`<button class="btn sm ghost" data-reject="${l.id}">Not a match</button>`:`${l.card_id?`<button class="btn sm" data-add="${l.id}">Add slip</button>`:''}<button class="btn sm ghost" data-pick="${l.id}">Link existing slip</button><button class="btn sm ghost" data-ignore="${l.id}">No slip needed</button>`}</div></div>`;
 }
 function candidates(l,M){const r=L.matchLines([{...l,merchant:L.parseDescriptor(l.description,l.post_date).merchant,status:'unmatched'}],M.all)[l.id];return (r?.candidates||(r?.slip_id?[r.slip_id]:[])).map(id=>M.all.find(s=>s.id===id)).filter(Boolean)}
 function slipRow(s,M,sub){return `<div class="item" data-slip="${s.id}" role="button" tabindex="0" style="cursor:pointer"><div class="m"><div class="t">${esc(s.supplier)}</div><div class="s">${esc(s.ref)} · ${esc(s.slip_date)} · ${esc(personOf(M,s.user_id))} ${stPill(s)} ${s.quality_flag?'<span class="pill o">Check image</span>':''}${sub?`<br>${esc(sub)}`:''}</div></div><div class="amt">${money(s.total,s.currency)}</div></div>`}
 function pickSlip(lineId,M){
-  const l=M.lines.find(x=>x.id===lineId);
-  const list=M.all.filter(s=>s.status==='captured'&&(!l.card_id||s.card_id===l.card_id));
+  const l=M.lines.find(x=>x.id===lineId),holder=M.cards.find(k=>k.id===l.card_id)?.holder_id;
+  const list=M.all.filter(s=>s.status==='captured'&&(!holder||s.user_id===holder)).sort((a,b)=>(Math.abs(+a.total-l.amount)-Math.abs(+b.total-l.amount)));
+  const other=s=>s.card_id!==l.card_id?` · ${esc(cardOf(M,s.card_id))}`:'';
   const w=document.createElement('div');w.className='modal';document.body.append(w);
-  w.innerHTML=`<div><h2>Link a slip to ${rand(l.amount)}</h2><p class="muted" style="margin-bottom:.5rem">${esc(l.description)}</p>${list.map(s=>`<div class="item"><div class="m"><div class="t">${esc(s.supplier)}</div><div class="s">${esc(s.ref)} · ${esc(s.slip_date)}</div></div><div class="amt">${money(s.total,s.currency)}</div><button class="btn sm" data-p="${s.id}">Link</button></div>`).join('')||'<p class="muted">No unmatched slips on this card.</p>'}<button class="btn ghost full" id="pc" style="margin-top:.7rem">Close</button></div>`;
+  w.innerHTML=`<div><h2>Link a slip to ${rand(l.amount)}</h2><p class="muted" style="margin-bottom:.5rem">${esc(l.description)}</p>${list.map(s=>`<div class="item"><div class="m"><div class="t">${esc(s.supplier)}</div><div class="s">${esc(s.ref)} · ${esc(s.slip_date)}${other(s)}</div></div><div class="amt">${money(s.total,s.currency)}</div><button class="btn sm" data-p="${s.id}">Link</button></div>`).join('')||`<p class="muted">${holder?esc(personOf(M,holder)):'This person'} has no unmatched slips.</p>`}<div class="row" style="margin-top:.7rem"><button class="btn ghost" id="pc">Close</button>${l.card_id?'<button class="btn" id="pa">Add a new slip</button>':''}</div></div>`;
   $('#pc',w).onclick=()=>w.remove();
+  const pa=$('#pa',w);if(pa)pa.onclick=()=>{w.remove();slipForLine(l,M)};
   $$('[data-p]',w).forEach(b=>b.onclick=async()=>{const {error}=await sb.rpc('link_line',{p_line:lineId,p_slip:b.dataset.p});if(error){toast(friendly(error));return}w.remove();monthView()});
 }
 
