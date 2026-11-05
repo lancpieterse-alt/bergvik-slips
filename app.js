@@ -15,7 +15,10 @@ function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');cl
 const friendly=e=>{const m=e?.message||String(e);return /Failed to fetch|NetworkError|Load failed/i.test(m)?'No connection. Try again.':m};
 
 const CURRENCIES=[['USD','USD (US Dollar)'],['EUR','EUR (Euro)'],['GBP','GBP (British Pound)'],['KES','KES (Kenyan Shilling)'],['BWP','BWP (Botswana Pula)'],['AED','AED (UAE Dirham)'],['AUD','AUD (Australian Dollar)'],['SEK','SEK (Swedish Krona)']];
-const S={me:null,view:'capture',cards:[],cats:[],opts:[],month:monthOf(today()),draft:null};
+/* Month-end happens early in the next month, so the first 10 days open on last month */
+function defaultMonth(){const t=today(),[y,m,d]=t.split('-').map(Number);if(d>10)return monthOf(t);const p=new Date(Date.UTC(y,m-2,1));return p.toISOString().slice(0,10)}
+const importLabel=()=>`Import and match to ${monthName(S.month)}`;
+const S={me:null,view:'capture',cards:[],cats:[],opts:[],month:defaultMonth(),draft:null};
 const isFin=()=>S.me?.role==='finance';
 
 /* ---------- boot and login ---------- */
@@ -116,6 +119,7 @@ function captureView(){
   const m=$('#m');m.className='';
   const ed=S.draft?.editing,fl=S.draft?.fromLine;
   const cards=fl?[fl.card]:ed?S.cards.filter(c=>c.id===S.draft.card_id||(c.holder_id===ed.user_id&&ed.user_id===S.me.id)):myCards();
+  if(ed&&!cards.length)cards.push({id:S.draft.card_id,label:'Card on this slip',last4:'saved'});
   if(!cards.length){m.innerHTML='<div class="card"><h2>No card assigned</h2><p class="muted">Ask finance to link your company card to your account.</p></div>';return}
   if(!S.draft)S.draft=newDraft();
   const d=S.draft; if(!d.card_id)d.card_id=store.get('slips-card','')&&cards.some(c=>c.id===store.get('slips-card',''))?store.get('slips-card',''):cards[0].id;
@@ -368,13 +372,14 @@ async function slipModal(s,after){
   const files=s.slip_files||[];const urls=files.length?(await sb.storage.from('slips').createSignedUrls(files.map(f=>f.path),600)).data||[]:[];
   const cat=S.cats.find(c=>c.id===s.category_id);
   const line=(a,b)=>b?`<div class="muted"><b>${a}:</b> ${esc(b)}</div>`:'';
-  const editable=s.status==='captured'&&(isFin()||s.user_id===S.me.id);
+  const editable=s.status==='captured'&&(isFin()||s.user_id===S.me.id),canUnlink=s.status==='matched'&&isFin()&&!!s.statement_line_id;
   w.innerHTML=`<div><h2>${esc(s.supplier)} <span class="muted">${esc(s.ref)}</span></h2><p style="font-weight:700;margin-bottom:.4rem">${money(s.total,s.currency)}${s.currency!=='ZAR'?` ${s.amount_zar?'= '+rand(s.amount_zar):'(rand amount from statement)'}`:''}</p>
   ${line('Date',s.slip_date)}${line('Category',cat?.name)}${line('Department',optName(s.department_id))}${line('Project',optName(s.project_id))}${line('Client',optName(s.client_id))}${line('Who / why',s.purpose)}${line('VAT',s.vat_amount!=null?rand(s.vat_amount):'')}${line('No slip because',s.no_slip_reason)}${line('Change returned',s.cash_change_returned!=null?rand(s.cash_change_returned):'')}${line('Notes',s.notes)}
   <div style="margin:.7rem 0">${urls.map((u,i)=>files[i].mime==='application/pdf'?`<a class="btn ghost sm" href="${esc(u.signedUrl)}" target="_blank" rel="noopener">Open PDF</a>`:`<img src="${esc(u.signedUrl)}" alt="Slip photo">`).join('')}</div>
-  <div class="row"><button class="btn ghost" id="mc">Close</button>${editable?'<button class="btn" id="me">Edit</button><button class="btn red" id="mv">Void</button>':''}</div>${s.status==='matched'?'<p class="muted" style="margin-top:.6rem">This slip is matched to a statement, so only finance can change it.</p>':''}</div>`;
+  <div class="row"><button class="btn ghost" id="mc">Close</button>${editable||canUnlink?'<button class="btn" id="me">Edit</button>':''}${editable?'<button class="btn red" id="mv">Void</button>':''}${canUnlink?'<button class="btn ghost" id="mu">Unlink</button>':''}</div>${s.status==='matched'&&!isFin()?'<p class="muted" style="margin-top:.6rem">This slip is matched to a statement, so only finance can change it.</p>':''}${canUnlink?'<p class="muted" style="margin-top:.6rem">Unlink takes this slip off its statement line, so you can link it to the right one.</p>':''}</div>`;
   $('#mc',w).onclick=close;
   const ee=$('#me',w);if(ee)ee.onclick=()=>{const v=S.view;close();editSlip(s,v)};
+  const uu=$('#mu',w);if(uu)uu.onclick=async()=>{uu.disabled=true;const {error}=await sb.rpc('unlink_line',{p_line:s.statement_line_id});if(error){toast(friendly(error));uu.disabled=false;return}close();toast(`${s.ref} unlinked. It’s back in the unmatched slips.`);after?.()};
   const v=$('#mv',w);if(v)v.onclick=async()=>{v.disabled=true;const {error}=await sb.from('slips').update({status:'voided'}).eq('id',s.id);if(error){toast(friendly(error));v.disabled=false;return}close();toast(`${s.ref} voided`);after?.()};
 }
 
@@ -490,7 +495,7 @@ function statementWizard(M){
     $('#s2').innerHTML=`<div class="row">${sel('date','Date column')}${sel('description','Description column')}</div><div class="row">${sel('amount','Amount column',1)}${sel('debit','Debit column',1)}${sel('credit','Credit column',1)}</div>
     <div class="field"><label class="lbl" for="c_card">Which card is this statement for?</label><select id="c_card"><option value="">${fileLast4?'Choose a card…':'Work it out from each line'}</option>${active.map(c=>`<option value="${c.id}" ${c.id===fileCard?.id?'selected':''}>${esc(c.label)} (${c.last4}), ${esc(personOf(M,c.holder_id))}</option>`).join('')}</select></div>
     ${fileLast4&&!fileCard?`<div class="note warn">This file’s number ends in ${esc(fileLast4)}, and no card has that number yet. Choose the card above and the app will remember this number for next time.</div>`:fileCard?`<div class="note ok">Card found in the file: statement number ending in ${esc(fileLast4)}.</div>`:''}
-    <div id="s3"></div><button class="btn" id="si">Import and match</button>`;
+    <div id="s3"></div><button class="btn" id="si">${esc(importLabel())}</button>`;
     $('#si').onclick=()=>doImport(f,body,head,sig,M,fileLast4&&!fileCard?fileLast4:null)};
 }
 const col=id=>{const v=$(id).value;return v===''?null:+v};
@@ -500,7 +505,7 @@ function tabsWizard(file,tabs,total,M){
   $('#s2').innerHTML=`<p class="muted" style="margin-bottom:.5rem">This workbook has ${tabs.length} statement tabs${total>tabs.length?` (${total-tabs.length} other tab${total-tabs.length>1?'s':''} skipped)`:''}. Check the card for each tab.</p>
   <div class="tw"><table><thead><tr><th>Tab</th><th class="n">Lines</th><th class="n">Rand total</th><th>Card</th></tr></thead><tbody>
   ${parts.map((p,i)=>`<tr><td>${esc(p.name)}</td><td class="n">${p.lines.length}</td><td class="n">${rand(p.lines.filter(l=>!l.is_credit).reduce((a,l)=>a+l.amount,0))}</td><td><select id="tab${i}" aria-label="Card for ${esc(p.name)}"><option value="">Choose a card…</option><option value="skip">Skip this tab</option>${active.map(c=>`<option value="${c.id}" ${c.id===p.found.card?.id?'selected':''}>${esc(c.holder_name)}: ${esc(c.label)} (${c.last4})</option>`).join('')}</select>${p.found.last4&&!p.found.card?`<div class="muted" style="color:var(--orange)">Number ending in ${esc(p.found.last4)} isn’t on a card yet. Choose the card and it will be remembered.</div>`:''}</td></tr>`).join('')}
-  </tbody></table></div><div id="s3" style="margin-top:.6rem"></div><button class="btn" id="si" style="margin-top:.5rem">Import and match</button>`;
+  </tbody></table></div><div id="s3" style="margin-top:.6rem"></div><button class="btn" id="si" style="margin-top:.5rem">${esc(importLabel())}</button>`;
   $('#si').onclick=()=>{
     const picks=parts.map((p,i)=>({p,v:$('#tab'+i).value}));
     if(picks.some(x=>!x.v)){$('#s3').innerHTML='<div class="note bad">Choose a card for every tab, or choose Skip this tab. Nothing was imported.</div>';return}
@@ -520,8 +525,8 @@ async function doImport(file,body,head,sig,M,newNo){
   const forced=$('#c_card').value||null,btn=$('#si');btn.disabled=true;btn.textContent='Importing…';
   const byLast4=Object.fromEntries(M.cards.filter(c=>c.active).flatMap(c=>[[c.last4,c.id],...(c.statement_last4?[[c.statement_last4,c.id]]:[])]));
   lines.forEach(l=>{l.card_id=forced||byLast4[l.last4]||null});
-  if(lines.some(l=>!l.card_id&&!l.is_credit)){btn.disabled=false;btn.textContent='Import and match';$('#s3').innerHTML='<div class="note bad">Choose which card this statement is for. Nothing was imported.</div>';return}
-  try{await rememberNumber(forced,newNo)}catch(x){btn.disabled=false;btn.textContent='Import and match';$('#s3').innerHTML=`<div class="note bad">${esc(/unique|duplicate/i.test(x.message)?'Another card already uses that statement number.':friendly(x))}</div>`;return}
+  if(lines.some(l=>!l.card_id&&!l.is_credit)){btn.disabled=false;btn.textContent=importLabel();$('#s3').innerHTML='<div class="note bad">Choose which card this statement is for. Nothing was imported.</div>';return}
+  try{await rememberNumber(forced,newNo)}catch(x){btn.disabled=false;btn.textContent=importLabel();$('#s3').innerHTML=`<div class="note bad">${esc(/unique|duplicate/i.test(x.message)?'Another card already uses that statement number.':friendly(x))}</div>`;return}
   runImport(file.name,lines,btn);
 }
 async function runImport(fileName,lines,btn){
@@ -542,7 +547,7 @@ async function runImport(fileName,lines,btn){
     const unk=ins.filter(r=>!r.card_id&&r.status!=='ignored').length;
     toast(`${ins.length} lines imported, ${auto} matched, ${pos} to review${dup?`, ${dup} duplicates skipped`:''}${unk?`, ${unk} with no known card`:''}`);
     monthView();
-  }catch(x){btn.disabled=false;btn.textContent='Import and match';$('#s3').innerHTML=`<div class="note bad">${esc(friendly(x))}</div>`}
+  }catch(x){btn.disabled=false;btn.textContent=importLabel();$('#s3').innerHTML=`<div class="note bad">${esc(friendly(x))}</div>`}
 }
 
 /* Export: one sheet per card in the existing report layout, a flat list, and exceptions, plus every image */
