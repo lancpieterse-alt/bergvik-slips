@@ -413,7 +413,7 @@ async function loadMonth(){
   const p=S.month;await loadRefs();
   const [sl,st,lock,people,allCards]=await Promise.all([
     sb.from('slips').select('*,slip_files(path,mime,page_no)').or(`period.eq.${p},status.eq.captured`).neq('status','voided').order('slip_date'),
-    sb.from('statements').select('id,file_name,statement_lines(*)').eq('period',p),
+    sb.from('statements').select('id,file_name,uploaded_at,statement_lines(*)').eq('period',p).order('uploaded_at'),
     sb.from('periods').select('*').eq('month',p).maybeSingle(),
     sb.from('profiles').select('*'),sb.from('cards').select('*')]);
   for(const r of [sl,st,people,allCards])if(r.error)throw r.error;
@@ -458,11 +458,13 @@ async function monthView(){
   ${noSlip.length?card('No slip: reason given',noSlip.map(s=>slipRow(s,M,s.no_slip_reason)).join('')):''}
   ${noFile.length?card('Missing an image',noFile.map(s=>slipRow(s,M)).join('')):''}
   ${flag.length?card('Image quality flagged',flag.map(s=>slipRow(s,M)).join('')):''}
+  ${M.statements.length?card('Statements uploaded',M.statements.map(t=>{const n=t.statement_lines.length,mt=t.statement_lines.filter(l=>l.status==='matched').length;return `<div class="item"><div class="m"><div class="t">${esc(t.file_name)}</div><div class="s">${n} line${n===1?'':'s'}, ${mt} matched${t.uploaded_at?` · ${esc(t.uploaded_at.slice(0,10))}`:''}</div></div>${locked?'':`<button class="btn sm ghost" data-rs="${t.id}">Remove</button>`}</div>`}).join('')):''}
   ${card('All slips',Ss.map(s=>slipRow(s,M)).join('')||'<p class="muted">Nothing captured for this month.</p>')}`;
   $('#mp').onchange=e=>{if(e.target.value){S.month=e.target.value+'-01';monthView()}};
   $$('[data-who]',m).forEach(r=>r.onclick=()=>{S.who=S.who===r.dataset.who?null:r.dataset.who;monthView()});
   const wa=$('#wa');if(wa)wa.onclick=()=>{S.who=null;monthView()};
   $$('[data-rem]',m).forEach(b=>b.onclick=e=>{e.stopPropagation();reminderModal(M,b.dataset.rem)});
+  $$('[data-rs]',m).forEach(b=>b.onclick=()=>removeStatement(M.statements.find(t=>t.id===b.dataset.rs)));
   const up=$('#up');if(up)up.onclick=()=>statementWizard(M);
   $('#xl').onclick=()=>exportMonth(M);
   $('#lk').onclick=async()=>{
@@ -475,6 +477,15 @@ async function monthView(){
   $$('[data-ignore]',m).forEach(b=>b.onclick=async()=>{const reason=await ask('Why does this line need no slip? (e.g. bank fee)');if(!reason)return;const {error}=await sb.from('statement_lines').update({status:'ignored',ignore_reason:reason}).eq('id',b.dataset.ignore);if(error)toast(friendly(error));monthView()});
   $$('[data-pick]',m).forEach(b=>b.onclick=()=>pickSlip(b.dataset.pick,M));
   $$('[data-add]',m).forEach(b=>b.onclick=()=>slipForLine(M.lines.find(x=>x.id===b.dataset.add),M));
+}
+function removeStatement(t){
+  const n=t.statement_lines.length,mt=t.statement_lines.filter(l=>l.status==='matched').length,notes=t.statement_lines.filter(l=>l.holder_note).length;
+  const w=document.createElement('div');w.className='modal';document.body.append(w);
+  w.innerHTML=`<div><h2>Remove this statement?</h2><p style="margin-bottom:.5rem;word-break:break-word"><b>${esc(t.file_name)}</b></p><p class="muted" style="margin-bottom:.8rem">This deletes its ${n} statement line${n===1?'':'s'}.${mt?` ${mt} matched slip${mt===1?' goes':'s go'} back to unmatched. The slips and photos are kept.`:''}${notes?` ${notes} cardholder note${notes===1?'':'s'} on these lines will be lost.`:''} Upload the right file again afterwards to rematch.</p><div id="re"></div><div class="row"><button class="btn ghost" id="rx">Cancel</button><button class="btn red" id="ro">Remove statement</button></div></div>`;
+  $('#rx',w).onclick=()=>w.remove();
+  $('#ro',w).onclick=async()=>{$('#ro',w).disabled=true;const {error}=await sb.rpc('remove_statement',{p_id:t.id});
+    if(error){$('#re',w).innerHTML=`<div class="note bad">${esc(friendly(error))}</div>`;$('#ro',w).disabled=false;return}
+    w.remove();toast('Statement removed');await loadRefs().catch(()=>{});monthView()};
 }
 function reminderText(M,id){
   const p=M.people.find(x=>x.id===id),ls=M.lines.filter(l=>l.status==='unmatched'&&M.cards.find(k=>k.id===l.card_id)?.holder_id===id);
@@ -681,7 +692,7 @@ async function peopleView(){
   <div class="field"><label class="lbl" for="nr">Access</label><select id="nr"><option value="cardholder">Cardholder</option><option value="finance">Finance</option></select></div></div><button class="btn">Add person</button></form></div>
   <div class="card"><h2>People</h2><div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Cards</th><th></th></tr></thead><tbody>
   ${p.data.map(u=>`<tr><td>${esc(u.full_name)} ${u.active?'':'<span class="pill n">Inactive</span>'}</td><td>${esc(u.email)}</td><td>${u.role==='finance'?'Finance':'Cardholder'}</td>
-  <td>${c.data.filter(k=>k.holder_id===u.id&&k.active).map(k=>`${esc(k.label)} (${k.last4})${k.statement_last4?` <span class="muted">statement ${k.statement_last4}</span>`:''} <button class="btn sm ghost" data-rc="${k.id}">Remove</button>`).join('<br>')||'<span class="muted">None</span>'}</td>
+  <td>${c.data.filter(k=>k.holder_id===u.id&&k.active).map(k=>`${esc(k.label)} (${k.last4})${k.statement_last4?` <span class="muted">statement ${k.statement_last4}</span> <button class="btn sm ghost" data-cn="${k.id}">Clear</button>`:''} <button class="btn sm ghost" data-rc="${k.id}">Remove</button>`).join('<br>')||'<span class="muted">None</span>'}</td>
   <td style="white-space:nowrap">${u.active?`<button class="btn sm ghost" data-ac="${u.id}">Add card</button> <button class="btn sm ghost" data-rp="${u.id}">Reset password</button> <button class="btn sm ghost" data-ar="${u.id}" data-r="${u.role}">${u.role==='finance'?'Make cardholder':'Make finance'}</button> <button class="btn sm red" data-da="${u.id}">Deactivate</button>`:`<button class="btn sm ghost" data-re="${u.id}">Reactivate</button>`}</td></tr>`).join('')}
   </tbody></table></div></div>`;
   const run=async(fn,ok)=>{try{await fn();if(ok)toast(ok);peopleView()}catch(e){toast(friendly(e))}};
@@ -689,6 +700,7 @@ async function peopleView(){
     try{await adminCall({action:'create',email,full_name:$('#np').value.trim(),role:$('#nr').value,temp_password:t});showPass(email,t)}catch(x){toast(friendly(x))}};
   $$('[data-ac]',m).forEach(b=>b.onclick=()=>cardForm(b.dataset.ac));
   $$('[data-rc]',m).forEach(b=>b.onclick=()=>run(async()=>{const {error}=await sb.from('cards').update({active:false}).eq('id',b.dataset.rc);if(error)throw error;await loadRefs()},'Card removed. Its history is kept.'));
+  $$('[data-cn]',m).forEach(b=>b.onclick=()=>run(async()=>{const {error}=await sb.from('cards').update({statement_last4:null}).eq('id',b.dataset.cn);if(error)throw error;await loadRefs()},'Statement number cleared'));
   $$('[data-rp]',m).forEach(b=>b.onclick=async()=>{const t=genPass(),u=p.data.find(x=>x.id===b.dataset.rp);try{await adminCall({action:'reset_password',id:u.id,temp_password:t});showPass(u.email,t)}catch(e){toast(friendly(e))}});
   $$('[data-ar]',m).forEach(b=>b.onclick=()=>run(()=>adminCall({action:'update',id:b.dataset.ar,role:b.dataset.r==='finance'?'cardholder':'finance'}),'Access updated'));
   $$('[data-da]',m).forEach(b=>b.onclick=()=>run(()=>adminCall({action:'update',id:b.dataset.da,active:false}),'Deactivated. Their cards are off and their slips are kept.'));
