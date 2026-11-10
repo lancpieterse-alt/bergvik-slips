@@ -130,7 +130,7 @@ function captureView(){
   ${fl?`<div class="note info">${fl.holder===S.me.id?'Adding your slip':`Adding the slip for <b>${esc(fl.person)}</b>`} (${rand(fl.amount)}, ${esc(fl.description)}). It links to this statement line when you save.<button type="button" class="btn sm ghost" id="ec" style="margin-left:.5rem">Cancel</button></div>`:''}
   ${(d.no_slip&&!ed)||cash?'':`<div class="big"><label class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>${d.files.length||d.existing?.length?'Add a photo':'Take photo'}<input id="cam" class="hide" type="file" accept="image/*" capture="environment"></label>
   <label class="b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload PDF or file<input id="fil" class="hide" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>`}
-  ${ed||fl?'':`<div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>`}
+  ${fl||(ed&&cash)?'':`<div class="link-row" style="margin-bottom:.8rem"><button type="button" id="ns" class="${d.no_slip?'on':''}">I have no slip</button>${ed?'':`<button type="button" id="cw" class="${cash?'on':''}">Cash withdrawal</button>`}</div>`}
   ${ed&&d.existing?.length?`<label class="lbl">Saved with this slip</label><div class="thumbs">${d.existing.map((f,i)=>{const gone=d.removing.includes(f.id),u=d.existingUrls?.[i],pdf=f.mime==='application/pdf';
     return `<div class="thumb" style="${gone?'opacity:.35':''}">${pdf?(u?`<a href="${esc(u)}" target="_blank" rel="noopener">Open PDF</a>`:'PDF'):(u?`<img src="${esc(u)}" alt="Saved slip page ${i+1}">`:'Photo')}${f.id?`<button type="button" data-xr="${i}" aria-label="${gone?'Keep this file':'Remove this file'}">${gone?'↺':'×'}</button>`:''}</div>`}).join('')}</div>
   ${d.removing.length?`<div class="note warn">${d.removing.length} saved file${d.removing.length>1?'s':''} will come off this slip when you save. Tap ↺ to keep it.</div>`:''}`:''}
@@ -167,7 +167,13 @@ function captureView(){
   $$('[data-rm]',m).forEach(b=>b.onclick=()=>{d.files.splice(+b.dataset.rm,1);captureView()});
   $$('[data-xr]',m).forEach(b=>b.onclick=()=>{const id=d.existing[+b.dataset.xr].id;d.removing=d.removing.includes(id)?d.removing.filter(x=>x!==id):[...d.removing,id];captureView()});
   if(ed||fl)$('#ec').onclick=()=>{const v=d.returnView;S.draft=null;S.view=v;shell()};
-  else{$('#ns').onclick=()=>{d.no_slip=!d.no_slip;d.mode='purchase';d.files=[];d.notices=[];captureView()};
+  // Editing: "I have no slip" takes any saved file off (on save) and asks for a reason. Tapping again undoes it.
+  if(ed&&!cash)$('#ns').onclick=()=>{
+    if(!d.no_slip){d._keepRemoving=d.removing;d.no_slip=true;d.files=[];d.removing=(d.existing||[]).filter(f=>f.id).map(f=>f.id);
+      d.notices=[['info','Marked as no slip. Say why below, then save. If you find the slip later, edit this again and add it.']]}
+    else{d.no_slip=false;d.no_slip_reason='';d.removing=d._keepRemoving||[];d.notices=[]}
+    captureView()};
+  if(!ed&&!fl){$('#ns').onclick=()=>{d.no_slip=!d.no_slip;d.mode='purchase';d.files=[];d.notices=[];captureView()};
   $('#cw').onclick=()=>{d.mode=cash?'purchase':'cash';d.no_slip=false;d.notices=[];d.supplier=cash?'':'Cash withdrawal';captureView()}}
   $('#sf').onsubmit=saveSlip;
   renderOutbox();
