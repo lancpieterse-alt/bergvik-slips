@@ -131,7 +131,9 @@ function captureView(){
   ${(d.no_slip&&!ed)||cash?'':`<div class="big"><label class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>${d.files.length||d.existing?.length?'Add a photo':'Take photo'}<input id="cam" class="hide" type="file" accept="image/*" capture="environment"></label>
   <label class="b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload PDF or file<input id="fil" class="hide" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>`}
   ${ed||fl?'':`<div class="link-row" style="margin-bottom:.8rem"><button id="ns" class="${d.no_slip?'on':''}">I have no slip</button><button id="cw" class="${cash?'on':''}">Cash withdrawal</button></div>`}
-  ${ed&&d.existing?.length?`<p class="muted" style="margin-bottom:.8rem">${d.existing.length} saved image${d.existing.length>1?'s':''} kept with this slip.</p>`:''}
+  ${ed&&d.existing?.length?`<label class="lbl">Saved with this slip</label><div class="thumbs">${d.existing.map((f,i)=>{const gone=d.removing.includes(f.id),u=d.existingUrls?.[i],pdf=f.mime==='application/pdf';
+    return `<div class="thumb" style="${gone?'opacity:.35':''}">${pdf?(u?`<a href="${esc(u)}" target="_blank" rel="noopener">Open PDF</a>`:'PDF'):(u?`<img src="${esc(u)}" alt="Saved slip page ${i+1}">`:'Photo')}${f.id?`<button type="button" data-xr="${i}" aria-label="${gone?'Keep this file':'Remove this file'}">${gone?'↺':'×'}</button>`:''}</div>`}).join('')}</div>
+  ${d.removing.length?`<div class="note warn">${d.removing.length} saved file${d.removing.length>1?'s':''} will come off this slip when you save. Tap ↺ to keep it.</div>`:''}`:''}
   <div class="thumbs">${d.files.map((f,i)=>`<div class="thumb">${f.url?`<img src="${f.url}" alt="Slip page ${i+1}">`:'PDF'}<button data-rm="${i}" aria-label="Remove">×</button></div>`).join('')}</div>
   ${d.reading?'<div class="note info"><span class="spin"></span> Reading the slip…</div>':''}
   ${d.notices.map(n=>`<div class="note ${n[0]}">${esc(n[1])}</div>`).join('')}
@@ -163,6 +165,7 @@ function captureView(){
   wireName('client','f_cl','client_name');wireName('project','f_prj','project_name');
   $$('[data-ct]',m).forEach(b=>b.onclick=()=>{d.cost_to=b.dataset.ct;captureView()});
   $$('[data-rm]',m).forEach(b=>b.onclick=()=>{d.files.splice(+b.dataset.rm,1);captureView()});
+  $$('[data-xr]',m).forEach(b=>b.onclick=()=>{const id=d.existing[+b.dataset.xr].id;d.removing=d.removing.includes(id)?d.removing.filter(x=>x!==id):[...d.removing,id];captureView()});
   if(ed||fl)$('#ec').onclick=()=>{const v=d.returnView;S.draft=null;S.view=v;shell()};
   else{$('#ns').onclick=()=>{d.no_slip=!d.no_slip;d.mode='purchase';d.files=[];d.notices=[];captureView()};
   $('#cw').onclick=()=>{d.mode=cash?'purchase':'cash';d.no_slip=false;d.notices=[];d.supplier=cash?'':'Cash withdrawal';captureView()}}
@@ -255,7 +258,8 @@ function validate(d){
   if(d.slip_date>today())return 'The date can’t be in the future.';
   if(d.no_slip&&!d.no_slip_reason.trim())return 'Say why there is no slip.';
   if(cash)return d.purpose.trim()?null:'Say what the cash is for.';
-  if(!d.no_slip&&!d.files.length&&!d.existing?.length)return 'Add a photo or file of the slip, or choose “I have no slip”.';
+  const kept=(d.existing||[]).filter(f=>!(d.removing||[]).includes(f.id)).length;
+  if(!d.no_slip&&!d.files.length&&!kept)return d.editing?'Add the correct slip (photo or file) before you save.':'Add a photo or file of the slip, or choose “I have no slip”.';
   if(!d.supplier.trim())return 'Enter the supplier.';if(!cat)return 'Choose what it was for.';
   if(cat.needs_client&&!d.client_name.trim())return 'Enter the client name.';
   if(cat.needs_purpose&&!d.purpose.trim())return cat.needs_client?'Say who attended and why.':'Say what this was for.';
@@ -281,6 +285,8 @@ async function saveEdit(d,rec0,files){
   const {id,_project_name:pn,_client_name:cn,...rec}=rec0,rows=[];
   if(pn)rec.project_id=await ensureOption('project',pn);
   if(cn)rec.client_id=await ensureOption('client',cn);
+  // Take wrongly attached files off first. Server keeps them as evidence; safe to repeat if a later step fails.
+  for(const fid of d.removing||[]){const r=await sb.rpc('remove_slip_file',{p_file:fid});if(r.error)throw r.error}
   const start=d.existing?.length||0;
   for(let i=0;i<files.length;i++){const f=files[i],path=`${d.editing.user_id}/${id}/${start+i+1}-${Date.now()}.${f.ext}`;
     const {error}=await sb.storage.from('slips').upload(path,f.blob,{contentType:f.mime,upsert:false});if(error)throw error;
@@ -299,8 +305,13 @@ function editSlip(s,returnView){
   const dr=newDraft();
   S.draft=Object.assign(dr,{id:s.id,editing:s,returnView,existing:s.slip_files||[],mode:s.kind==='cash_withdrawal'?'cash':'purchase',card_id:s.card_id,slip_date:s.slip_date,supplier:s.supplier,total:String(s.total),currency:s.currency,foreign:s.currency!=='ZAR',
     vat_amount:s.vat_amount??'',category_id:s.category_id||'',cost_to:s.project_id?'project':'department',department_id:s.department_id||'',project_name:optName(s.project_id),client_name:optName(s.client_id),purpose:s.purpose||'',notes:s.notes||'',
-    no_slip:s.no_slip,no_slip_reason:s.no_slip_reason||'',cash_change_returned:s.cash_change_returned??'',quality_flag:s.quality_flag,ai_read:s.ai_read,_nameOk:true});
+    no_slip:s.no_slip,no_slip_reason:s.no_slip_reason||'',cash_change_returned:s.cash_change_returned??'',quality_flag:s.quality_flag,ai_read:s.ai_read,_nameOk:true,removing:[]});
   S.view='capture';shell();
+  // Show the saved files so a wrong one can be seen and removed.
+  const ex=S.draft.existing;
+  if(ex.length)sb.storage.from('slips').createSignedUrls(ex.map(f=>f.path),600).then(({data})=>{
+    const d=S.draft;if(!data||!d||d.existing!==ex)return;d.existingUrls=data.map(x=>x.signedUrl);
+    if(S.view==='capture'){const a=document.activeElement?.id;captureView();if(a)$('#'+a)?.focus()}}).catch(()=>{});
 }
 const isNet=e=>/Failed to fetch|NetworkError|Load failed|fetch/i.test(e?.message||'');
 async function saveSlip(e){
@@ -364,7 +375,7 @@ async function flushOutbox(){
 const stPill=s=>s.status==='matched'?'<span class="pill g">On statement</span>':s.status==='voided'?'<span class="pill n">Voided</span>':s.no_slip?'<span class="pill o">No slip</span>':'<span class="pill b">Captured</span>';
 async function mineView(){
   const m=$('#m');m.className='';m.innerHTML='<div class="card"><span class="spin"></span></div>';
-  const {data,error}=await sb.from('slips').select('*,slip_files(path,mime)').eq('user_id',S.me.id).order('slip_date',{ascending:false}).limit(200);
+  const {data,error}=await sb.from('slips').select('*,slip_files(id,path,mime)').eq('user_id',S.me.id).order('slip_date',{ascending:false}).limit(200);
   if(error){m.innerHTML=`<div class="note bad">${esc(friendly(error))}</div>`;return}
   if(!data.length){m.innerHTML='<div class="card"><h2>No slips yet</h2><p class="muted">Slips you capture appear here.</p></div>';return}
   const groups={};data.forEach(s=>(groups[s.period]??=[]).push(s));
@@ -412,7 +423,7 @@ async function slipModal(s,after){
 async function loadMonth(){
   const p=S.month;await loadRefs();
   const [sl,st,lock,people,allCards]=await Promise.all([
-    sb.from('slips').select('*,slip_files(path,mime,page_no)').or(`period.eq.${p},status.eq.captured`).neq('status','voided').order('slip_date'),
+    sb.from('slips').select('*,slip_files(id,path,mime,page_no)').or(`period.eq.${p},status.eq.captured`).neq('status','voided').order('slip_date'),
     sb.from('statements').select('id,file_name,uploaded_at,statement_lines(*)').eq('period',p).order('uploaded_at'),
     sb.from('periods').select('*').eq('month',p).maybeSingle(),
     sb.from('profiles').select('*'),sb.from('cards').select('*')]);
